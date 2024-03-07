@@ -451,8 +451,6 @@ fn read_compressed_floats(
 
     let mut compressed_data = Vec::new();
     read_opaque(file, &mut compressed_data)?;
-    let mut intbuf = Vec::new();
-    intbuf.resize(n, 0);
     let mut data = Vec::new();
     data.resize(n, 0.0);
     let mut data = data.into_boxed_slice();
@@ -471,8 +469,7 @@ fn read_compressed_floats(
     let mut write_idx = 0;
     let mut read_idx = 0;
     while read_idx < natoms {
-        let mut thiscoord = &mut intbuf[read_idx * 3..(read_idx + 1) * 3];
-        // let mut thiscoord_fl = &mut data[write_idx * 3..(write_idx + 1) * 3];
+        let mut thiscoord = [0i32; 3];
         let mut thiscoord_fl = data.get_mut(write_idx * 3..(write_idx + 1) * 3).unwrap();
 
         if bitsize == 0 {
@@ -485,7 +482,7 @@ fn read_compressed_floats(
                 &mut state,
                 bitsize,
                 sizeint,
-                thiscoord.try_into().unwrap(),
+                &mut thiscoord,
             );
         }
 
@@ -510,7 +507,7 @@ fn read_compressed_floats(
         }
         if run > 0 {
             // Let's read the next coordinate.
-            thiscoord = &mut intbuf[(read_idx + 1) * 3..(read_idx + 2) * 3];
+            thiscoord.fill(0);
 
             for k in (0..run).step_by(3) {
                 decodeints(
@@ -518,7 +515,7 @@ fn read_compressed_floats(
                     &mut state,
                     smallidx as u32,
                     sizesmall,
-                    thiscoord.try_into().unwrap(),
+                    &mut thiscoord,
                 );
                 read_idx += 1;
                 thiscoord[0] += prevcoord[0] - smallnum;
