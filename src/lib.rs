@@ -451,9 +451,11 @@ fn read_compressed_floats(
 
     let mut compressed_data = Vec::new();
     read_opaque(file, &mut compressed_data)?;
-    let mut data = Vec::new();
-    data.resize(n, 0.0);
-    let mut data = data.into_boxed_slice();
+    let mut data = {
+        let mut data = Vec::with_capacity(n);
+        data.resize(n, 0.0);
+        data.into_boxed_slice()
+    };
 
     assert_eq!(n % 3, 0, "length of data should be divisible by 3");
     let natoms = n / 3;
@@ -543,11 +545,9 @@ fn read_compressed_floats(
                 thiscoord_fl[1] = thiscoord[1] as f32 * inv_precision;
                 thiscoord_fl[2] = thiscoord[2] as f32 * inv_precision;
                 write_idx += 1;
-                // thiscoord_fl = &mut data[write_idx * 3..(write_idx + 1) * 3];
-                // thiscoord_fl = data.get_mut(write_idx * 3..(write_idx + 1) * 3).unwrap();
-                thiscoord_fl =  match data.get_mut(write_idx * 3..(write_idx + 1) * 3){
+                thiscoord_fl = match data.get_mut(write_idx * 3..(write_idx + 1) * 3) {
                     Some(c) => c,
-                    None => {break},
+                    None => break,
                 };
             }
         } else {
@@ -555,7 +555,6 @@ fn read_compressed_floats(
             thiscoord_fl[1] = thiscoord[1] as f32 * inv_precision;
             thiscoord_fl[2] = thiscoord[2] as f32 * inv_precision;
             write_idx += 1;
-            // thiscoord_fl =  data.get_mut(write_idx * 3..(write_idx + 1) * 3).unwrap();
         }
 
         if is_smaller < 0 {
