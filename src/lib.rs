@@ -52,16 +52,14 @@ impl<R: std::io::Read> XTCReader<R> {
         assert_eq!(natoms, natoms_repeated);
 
         // Now, we read the atoms.
-        let mut atoms = Vec::with_capacity(natoms);
-        if natoms <= 9 {
+        let positions = if natoms <= 9 {
             // In case the number of atoms is very small, just read their uncompressed positions.
-            let positions = read_f32s(file, natoms * 3)?;
-            atoms.extend(positions.array_chunks().map(|pos| Vec3::from_array(pos)));
+            read_f32s(file, natoms * 3)?.collect()
         } else {
             let precision = read_f32(file)?;
-            let positions = read_compressed_floats(file, natoms * 3, precision)?;
-            atoms.extend(positions.array_chunks().map(|&pos| Vec3::from_array(pos)));
-        }
+            read_compressed_floats(file, natoms * 3, precision)?
+        };
+        let atoms = Vec::from_iter(positions.array_chunks().cloned().map(Vec3::from_array));
 
         self.step += 1;
 
