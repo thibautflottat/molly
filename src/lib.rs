@@ -141,7 +141,7 @@ fn calc_sizeint(
     sizeofints(*sizeint)
 }
 
-fn sizeofint(size: u32) -> u32 {
+const fn sizeofint(size: u32) -> u32 {
     let mut n = 1;
     let mut nbits = 0;
 
