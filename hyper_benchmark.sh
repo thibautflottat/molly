@@ -10,4 +10,4 @@ cargo build --release --examples
 # Verify that the output is equal between chemfiles and ours.
 time target/release/examples/compare $trajectory
 
-hyperfine --shell=none --warmup 10 "target/release/examples/cfreader $trajectory" "target/release/examples/reader $trajectory"
+hyperfine --shell=none --warmup 4 "target/release/examples/cfreader $trajectory" "target/release/examples/reader $trajectory"
