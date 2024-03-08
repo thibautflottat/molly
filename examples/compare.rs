@@ -31,7 +31,7 @@ fn main() -> std::io::Result<()> {
         natoms = frame.positions.len();
         n += 1;
     }
-    eprintln!("read {n} frames");
+    eprintln!("compare: read {n} frames");
     assert_eq!(natoms, cfframe.positions().len());
     eprintln!("{} atoms", cfframe.positions().len());
 

@@ -11,8 +11,7 @@ fn main() -> std::io::Result<()> {
 
     let mut n = 0;
     while trajectory.read(&mut frame).is_ok() {n+=1}
-    // eprintln!("read {n} frames");
-    // eprintln!("{} atoms", frame.positions().len());
+    eprintln!("cfreader: read {n} frames");
 
     Ok(())
 }

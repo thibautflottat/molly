@@ -13,7 +13,7 @@ fn main() -> std::io::Result<()> {
     while reader.read_frame().is_ok() {
         n += 1;
     }
-    // eprintln!("n = {n}");
+    eprintln!("reader: read {n} frames");
 
     Ok(())
 }
