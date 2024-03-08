@@ -8,7 +8,8 @@ trajectory=$1
 cargo build --release --examples
 
 # Verify that the output is equal between chemfiles and ours.
-time target/release/examples/compare $trajectory
+time target/release/examples/compare   $trajectory
 
-time target/release/examples/cfreader $trajectory
-time target/release/examples/reader $trajectory
+time target/release/examples/cfreader  $trajectory
+time target/release/examples/xdrreader $trajectory
+time target/release/examples/reader    $trajectory
