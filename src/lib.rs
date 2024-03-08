@@ -186,18 +186,15 @@ fn sizeofints(sizes: [u32; 3]) -> u32 {
         num *= 2;
     }
 
-    // eprintln!("sizeofints -> {}", nbytes as u32 * 8 + nbits);
     nbytes as u32 * 8 + nbits // FIXME: Check whether it is okay for nbytes to have the type of usize not u32
 }
 
-// CHECKED(2024-03-07 11:55): Seems fine from a cursory look. May want to look further.
 fn decodebits<T: TryFrom<u32> + std::fmt::Debug>(
     buf: &[u8],
     state: &mut DecodeState,
     mut nbits: usize,
 ) -> T {
-    // eprintln!("decodebits::nbits = {nbits}");
-    let mask = (1 << nbits) - 1;
+    let mask = (1 << nbits) - 1; // A string of ones that is nbits long.
 
     let DecodeState {
         mut count,
@@ -255,7 +252,6 @@ fn decodeints(
     }
 
     let mut bytes = [0u8; 32];
-    bytes[..3].fill(0);
     let mut nbytes: usize = 0;
     while nbits >= 8 {
         bytes[nbytes] = decodebits(buf, state, 8);
@@ -267,23 +263,19 @@ fn decodeints(
         nbytes += 1;
     }
 
-    for i in 2..0 {
+    for i in (0..2).rev() {
         let mut num: u32 = 0;
         for j in 0..nbytes {
             let k = nbytes - 1 - j;
             num = (num << 8) | bytes[k] as u32;
             let p = num / sizes[i];
             bytes[k] = p as u8;
-            num = num - p * sizes[i]; // FIXME: Is there a reason not to use -= here?
+            num -= p * sizes[i];
         }
         nums[i] = num as i32;
     }
 
-    // FIXME: Isn't this just a little endian cast of [u8; 4] to i32?
-    nums[0] = bytes[0] as i32
-        | ((bytes[1] as i32) << 8)
-        | ((bytes[2] as i32) << 16)
-        | ((bytes[3] as i32) << 24);
+    nums[0] = i32::from_le_bytes(bytes[..4].try_into().unwrap());
 }
 
 fn unpack_from_int_into_u32(
