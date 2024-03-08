@@ -95,10 +95,7 @@ fn read_f32s(
 ) -> std::io::Result<impl Iterator<Item = f32>> {
     let mut buf = vec![0; n * 4]; // TODO: Gotta remove this.
     file.read_exact(&mut buf)?;
-    Ok(buf
-        .into_iter()
-        .array_chunks()
-        .map(|chunk| f32::from_be_bytes(chunk)))
+    Ok(buf.into_iter().array_chunks().map(f32::from_be_bytes))
 }
 
 // FIXME: These read_* functions are prime targets for a macro tbh.
