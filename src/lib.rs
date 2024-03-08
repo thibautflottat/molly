@@ -369,18 +369,15 @@ fn read_compressed_floats(
     ];
 
     const FIRSTIDX: usize = 9; // Note that MAGICINTS[FIRSTIDX-1] == 0.
-    const LASTIDX: usize = MAGICINTS.len(); // FIXME: Check if this is actually equivalent to #define LASTIDX (sizeof(MAGICINTS) / sizeof(*MAGICINTS))
 
     let minint = [0; 3].try_map(|_| read_i32(file))?;
     let maxint = [0; 3].try_map(|_| read_i32(file))?;
     let mut smallidx = read_u32(file)? as usize;
-    assert!(smallidx < LASTIDX);
+    assert!(smallidx < MAGICINTS.len());
 
     let mut sizeint = [0u32; 3];
     let mut bitsizeint = [0u32; 3];
     let bitsize = calc_sizeint(minint, maxint, &mut sizeint, &mut bitsizeint);
-    // eprintln!("   sizeint = {sizeint:?}");
-    // eprintln!("bitsizeint = {bitsizeint:?}");
 
     let tmpidx = smallidx - 1;
     let tmpidx = if FIRSTIDX > tmpidx { FIRSTIDX } else { tmpidx };
