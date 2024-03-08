@@ -284,14 +284,12 @@ fn unpack_from_int_into_u32(
     mut nbits: u32,
     sizes: [u32; 3],
     nums: &mut [i32; 3],
-) 
-{
+) {
     type T = u32;
     let mut v: T = 0;
     let mut nbytes: usize = 0;
     while nbits >= 8 {
         let byte: T = decodebits(buf, state, 8);
-        assert_eq!(nbytes as u32 as usize, nbytes);
         v |= byte << (8 * nbytes as u32);
         nbytes += 1;
         nbits -= 8;
@@ -302,8 +300,8 @@ fn unpack_from_int_into_u32(
     }
 
     // FIXME: What's up with the whole FastType stuff here?
-    let sz: T = sizes[2].into();
-    let sy: T = sizes[1].into();
+    let sz: T = sizes[2];
+    let sy: T = sizes[1];
     let szy: T = sz * sy;
     let x1 = v / szy;
     let q1 = v - x1 * szy;
@@ -319,14 +317,12 @@ fn unpack_from_int_into_u64(
     mut nbits: u32,
     sizes: [u32; 3],
     nums: &mut [i32; 3],
-) 
-{
+) {
     type T = u64;
     let mut v: T = 0;
     let mut nbytes: usize = 0;
     while nbits >= 8 {
         let byte: T = decodebits(buf, state, 8);
-        assert_eq!(nbytes as u32 as usize, nbytes);
         v |= byte << (8 * nbytes as u32);
         nbytes += 1;
         nbits -= 8;
@@ -337,8 +333,8 @@ fn unpack_from_int_into_u64(
     }
 
     // FIXME: What's up with the whole FastType stuff here?
-    let sz: T = sizes[2].into();
-    let sy: T = sizes[1].into();
+    let sz: T = sizes[2] as u64;
+    let sy: T = sizes[1] as u64;
     let szy: T = sz * sy;
     let x1 = v / szy;
     let q1 = v - x1 * szy;
@@ -346,50 +342,6 @@ fn unpack_from_int_into_u64(
     let z1 = q1 - y1 * sz;
 
     *nums = [x1, y1, z1].map(|v| v as i32);
-}
-
-fn unpack_from_int<T>(
-    buf: &[u8],
-    state: &mut DecodeState,
-    mut nbits: u32,
-    sizes: [u32; 3],
-    nums: &mut [i32; 3],
-) where
-    T: From<u32>
-        + std::ops::Div<T, Output = T>
-        + std::ops::Mul<T, Output = T>
-        + std::ops::Shl<T, Output = T>
-        + std::ops::BitOrAssign<T>
-        + std::ops::Shl<T>
-        + std::ops::Sub<T, Output = T>
-        + Into<u64>
-        + Copy
-        + std::fmt::Debug,
-{
-    let mut v: T = unsafe { std::mem::zeroed() };
-    let mut nbytes: usize = 0;
-    while nbits >= 8 {
-        let byte: T = decodebits(buf, state, 8);
-        assert_eq!(nbytes as u32 as usize, nbytes);
-        v |= byte << (8 * nbytes as u32).into();
-        nbytes += 1;
-        nbits -= 8;
-    }
-    if nbits > 0 {
-        let byte: T = decodebits(buf, state, nbits as usize);
-        v |= byte << (8 * nbytes as u32).into();
-    }
-
-    // FIXME: What's up with the whole FastType stuff here?
-    let sz: T = sizes[2].into();
-    let sy: T = sizes[1].into();
-    let szy: T = sz * sy;
-    let x1 = v / szy;
-    let q1 = v - x1 * szy;
-    let y1 = q1 / sz;
-    let z1 = q1 - y1 * sz;
-
-    *nums = [x1, y1, z1].map(|v| v.into() as i32);
 }
 
 struct DecodeState {
