@@ -38,8 +38,12 @@ impl<R: std::io::Read> XTCReader<R> {
         // Start of by reading the header.
         let magic = read_i32(file)?;
         assert_eq!(magic, Self::MAGIC);
-        let natoms = read_i32(file)?.try_into().unwrap();
-        let step: u32 = read_i32(file)?.try_into().unwrap();
+        let natoms: usize = read_i32(file)?
+            .try_into()
+            .expect("natoms must be a positive integer");
+        let step: u32 = read_i32(file)?
+            .try_into()
+            .expect("step must be a positive integer");
         let time = read_f32(file)?;
 
         // Read the frame data.
