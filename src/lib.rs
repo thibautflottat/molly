@@ -10,7 +10,7 @@ pub struct Frame {
     /// Time in picoseconds.
     pub time: f32,
     pub boxvec: BoxVec,
-    pub positions: Vec<Vec3>,
+    pub positions: Box<[Vec3]>,
 }
 
 #[derive(Debug, Clone)]
@@ -65,7 +65,7 @@ impl<R: std::io::Read> XTCReader<R> {
             step,
             time,
             boxvec,
-            positions: atoms,
+            positions: atoms.into_boxed_slice(),
         })
     }
 }
