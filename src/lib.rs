@@ -150,23 +150,20 @@ const fn sizeofint(size: u32) -> u32 {
         n <<= 1;
     }
 
-    eprintln!("nbits = {nbits}");
     nbits
 }
 
-// CHECKED(2024-03-07 11:43): Looks good (for at least the first entries).
 fn sizeofints(sizes: [u32; 3]) -> u32 {
-    let nints = sizes.len(); // FIXME: Inline this.
     let mut nbytes = 1;
     let mut bytes = [0u8; 32];
     bytes[0] = 1;
     let mut nbits = 0;
 
-    for i in 0..nints {
+    for size in sizes {
         let mut tmp = 0;
         let mut bytecount = 0;
         while bytecount < nbytes {
-            tmp = bytes[bytecount] as u32 * sizes[i] + tmp; // FIXME: +=? or overflows?
+            tmp += bytes[bytecount] as u32 * size;
             bytes[bytecount] = (tmp & 0xff) as u8;
             tmp >>= 8;
             bytecount += 1;
