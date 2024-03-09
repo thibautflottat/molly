@@ -8,9 +8,10 @@ fn main() -> std::io::Result<()> {
 
     let file = std::fs::File::open(path)?;
     let mut reader = XTCReader::new(file);
+    let mut frame = molly::Frame::default();
 
     let mut n = 0;
-    while reader.read_frame().is_ok() {
+    while reader.read_frame(&mut frame).is_ok() {
         n += 1;
     }
     eprintln!("reader: read {n} frames");

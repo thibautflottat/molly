@@ -6,25 +6,28 @@ struct DecodeState {
     lastbyte: u8,
 }
 
-pub(crate) fn read_compressed_floats(
-    file: &mut impl std::io::Read,
-    n: usize,
-    precision: f32,
-) -> std::io::Result<Box<[f32]>> {
-    // TODO: I have a constexpr laying around for this somewhere.
-    #[rustfmt::skip]
-    const  MAGICINTS : [i32; 73] = [
-        0,        0,        0,       0,       0,       0,       0,       0,       0,       8,
-        10,       12,       16,      20,      25,      32,      40,      50,      64,      80,
-        101,      128,      161,     203,     256,     322,     406,     512,     645,     812,
-        1024,     1290,     1625,    2048,    2580,    3250,    4096,    5060,    6501,    8192,
-        10321,    13003,    16384,   20642,   26007,   32768,   41285,   52015,   65536,   82570,
-        104031,   131072,   165140,  208063,  262144,  330280,  416127,  524287,  660561,  832255,
-        1048576,  1321122,  1664510, 2097152, 2642245, 3329021, 4194304, 5284491, 6658042, 8388607,
-        10568983, 13316085, 16777216
-    ];
+// TODO: I have a constexpr laying around for this somewhere.
+#[rustfmt::skip]
+pub const  MAGICINTS : [i32; 73] = [
+    0,        0,        0,       0,       0,       0,       0,       0,       0,       8,
+    10,       12,       16,      20,      25,      32,      40,      50,      64,      80,
+    101,      128,      161,     203,     256,     322,     406,     512,     645,     812,
+    1024,     1290,     1625,    2048,    2580,    3250,    4096,    5060,    6501,    8192,
+    10321,    13003,    16384,   20642,   26007,   32768,   41285,   52015,   65536,   82570,
+    104031,   131072,   165140,  208063,  262144,  330280,  416127,  524287,  660561,  832255,
+    1048576,  1321122,  1664510, 2097152, 2642245, 3329021, 4194304, 5284491, 6658042, 8388607,
+    10568983, 13316085, 16777216
+];
+pub const FIRSTIDX: usize = 9; // Note that MAGICINTS[FIRSTIDX-1] == 0.
 
-    const FIRSTIDX: usize = 9; // Note that MAGICINTS[FIRSTIDX-1] == 0.
+pub(crate) fn read_compressed_positions(
+    file: &mut impl std::io::Read,
+    positions: &mut Vec<f32>,
+    precision: f32,
+) -> std::io::Result<()> {
+    let n = positions.len();
+    assert_eq!(n % 3, 0, "the length of `positions` must be divisible by 3");
+    let natoms = n / 3;
 
     let minint = [0; 3].try_map(|_| read_i32(file))?;
     let maxint = [0; 3].try_map(|_| read_i32(file))?;
@@ -44,14 +47,6 @@ pub(crate) fn read_compressed_floats(
 
     let mut compressed_data = Vec::new();
     read_opaque(file, &mut compressed_data)?;
-    let mut data = {
-        let mut data = Vec::with_capacity(n);
-        data.resize(n, 0.0);
-        data.into_boxed_slice()
-    };
-
-    assert_eq!(n % 3, 0, "length of data should be divisible by 3");
-    let natoms = n / 3;
 
     let mut state = DecodeState {
         count: 0,
@@ -65,7 +60,7 @@ pub(crate) fn read_compressed_floats(
     let mut read_idx = 0;
     while read_idx < natoms {
         let mut thiscoord = [0i32; 3];
-        let mut thiscoord_fl = data.get_mut(write_idx * 3..(write_idx + 1) * 3).unwrap();
+        let mut thiscoord_fl = positions.get_mut(write_idx * 3..(write_idx + 1) * 3).unwrap();
 
         if bitsize == 0 {
             thiscoord[0] = decodebits(&compressed_data, &mut state, bitsizeint[0] as usize);
@@ -128,7 +123,7 @@ pub(crate) fn read_compressed_floats(
                     thiscoord_fl[2] = prevcoord[2] as f32 * inv_precision;
                     write_idx += 1;
                     // thiscoord_fl = &mut data[write_idx * 3..(write_idx + 1) * 3];
-                    thiscoord_fl = data.get_mut(write_idx * 3..(write_idx + 1) * 3).unwrap();
+                    thiscoord_fl = positions.get_mut(write_idx * 3..(write_idx + 1) * 3).unwrap();
                 } else {
                     prevcoord[0] = thiscoord[0];
                     prevcoord[1] = thiscoord[1];
@@ -138,7 +133,7 @@ pub(crate) fn read_compressed_floats(
                 thiscoord_fl[1] = thiscoord[1] as f32 * inv_precision;
                 thiscoord_fl[2] = thiscoord[2] as f32 * inv_precision;
                 write_idx += 1;
-                thiscoord_fl = match data.get_mut(write_idx * 3..(write_idx + 1) * 3) {
+                thiscoord_fl = match positions.get_mut(write_idx * 3..(write_idx + 1) * 3) {
                     Some(c) => c,
                     None => break,
                 };
@@ -170,7 +165,7 @@ pub(crate) fn read_compressed_floats(
         read_idx += 1;
     }
 
-    Ok(data)
+    Ok(())
 }
 
 pub(crate) fn read_boxvec(file: &mut impl std::io::Read) -> std::io::Result<BoxVec> {
@@ -444,4 +439,3 @@ fn unpack_from_int_into_u64(
 
     *nums = [x1, y1, z1].map(|v| v as i32);
 }
-

@@ -1,8 +1,9 @@
 #![feature(array_chunks, iter_array_chunks, array_try_map)]
 
-use glam::{Mat3, Vec3};
 
-use crate::reader::{read_boxvec, read_compressed_floats, read_f32, read_f32s, read_i32};
+use glam::Mat3;
+
+use crate::reader::{read_boxvec, read_compressed_positions, read_f32, read_f32s, read_i32};
 
 mod reader;
 
@@ -14,7 +15,7 @@ pub struct Frame {
     /// Time in picoseconds.
     pub time: f32,
     pub boxvec: BoxVec,
-    pub positions: Box<[Vec3]>,
+    pub positions: Vec<f32>,
 }
 
 #[derive(Debug, Clone)]
@@ -36,7 +37,7 @@ impl<R: std::io::Read> XTCReader<R> {
     }
 
     /// Reads and returns a [`Frame`] and advances one step.
-    pub fn read_frame(&mut self) -> std::io::Result<Frame> {
+    pub fn read_frame(&mut self, frame: &mut Frame) -> std::io::Result<()> {
         let file = &mut self.file;
 
         // Start of by reading the header.
@@ -56,22 +57,23 @@ impl<R: std::io::Read> XTCReader<R> {
         assert_eq!(natoms, natoms_repeated);
 
         // Now, we read the atoms.
-        let positions = if natoms <= 9 {
+        frame.positions.resize(natoms * 3, 0.0);
+        if natoms <= 9 {
             // In case the number of atoms is very small, just read their uncompressed positions.
-            read_f32s(file, natoms * 3)?.collect()
+            frame
+                .positions
+                .copy_from_slice(read_f32s(file, natoms * 3)?.collect::<Vec<_>>().as_slice())
         } else {
             let precision = read_f32(file)?;
-            read_compressed_floats(file, natoms * 3, precision)?
-        };
-        let atoms = Vec::from_iter(positions.array_chunks().cloned().map(Vec3::from_array));
+            read_compressed_positions(file, &mut frame.positions, precision)?;
+        }
 
         self.step += 1;
 
-        Ok(Frame {
-            step,
-            time,
-            boxvec,
-            positions: atoms.into_boxed_slice(),
-        })
+        frame.step = step;
+        frame.time = time;
+        frame.boxvec = boxvec;
+
+        Ok(())
     }
 }
