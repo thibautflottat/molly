@@ -22,8 +22,8 @@ pub const FIRSTIDX: usize = 9; // Note that MAGICINTS[FIRSTIDX-1] == 0.
 
 pub(crate) fn read_compressed_positions(
     file: &mut impl std::io::Read,
-    positions: &mut Vec<f32>,
-    precision: f32,
+    positions: &mut Vec<i32>,
+    scratch: &mut Vec<u8>,
 ) -> std::io::Result<()> {
     let n = positions.len();
     assert_eq!(n % 3, 0, "the length of `positions` must be divisible by 3");
@@ -45,8 +45,8 @@ pub(crate) fn read_compressed_positions(
     let mut smallnum = MAGICINTS[smallidx] / 2;
     let mut sizesmall = [MAGICINTS[smallidx] as u32; 3];
 
-    let mut compressed_data = Vec::new();
-    read_opaque(file, &mut compressed_data)?;
+    let compressed_data = scratch;
+    read_opaque(file, compressed_data)?;
 
     let mut state = DecodeState {
         count: 0,
@@ -54,35 +54,24 @@ pub(crate) fn read_compressed_positions(
         lastbyte: 0,
     };
     let mut run: i32 = 0;
-    let mut prevcoord = [0i32; 3];
-    let inv_precision = 1.0 / precision;
+    let mut prevcoord;
     let mut write_idx = 0;
     let mut read_idx = 0;
     while read_idx < natoms {
-        let mut thiscoord = [0i32; 3];
-        let mut thiscoord_fl = positions.get_mut(write_idx * 3..(write_idx + 1) * 3).unwrap();
-
+        let mut coord = [0i32; 3];
+        let mut position: &mut [i32; 3] = positions.array_chunks_mut().nth(write_idx).unwrap();
         if bitsize == 0 {
-            thiscoord[0] = decodebits(&compressed_data, &mut state, bitsizeint[0] as usize);
-            thiscoord[1] = decodebits(&compressed_data, &mut state, bitsizeint[1] as usize);
-            thiscoord[2] = decodebits(&compressed_data, &mut state, bitsizeint[2] as usize);
+            coord[0] = decodebits(&compressed_data, &mut state, bitsizeint[0] as usize);
+            coord[1] = decodebits(&compressed_data, &mut state, bitsizeint[1] as usize);
+            coord[2] = decodebits(&compressed_data, &mut state, bitsizeint[2] as usize);
         } else {
-            decodeints(
-                &compressed_data,
-                &mut state,
-                bitsize,
-                sizeint,
-                &mut thiscoord,
-            );
+            decodeints(&compressed_data, &mut state, bitsize, sizeint, &mut coord);
         }
 
-        thiscoord[0] += minint[0];
-        thiscoord[1] += minint[1];
-        thiscoord[2] += minint[2];
-
-        prevcoord[0] = thiscoord[0];
-        prevcoord[1] = thiscoord[1];
-        prevcoord[2] = thiscoord[2];
+        coord[0] += minint[0];
+        coord[1] += minint[1];
+        coord[2] += minint[2];
+        prevcoord = coord;
 
         let flag: bool = decodebits::<u8>(&compressed_data, &mut state, 1) > 0;
         let mut is_smaller = 0;
@@ -97,7 +86,7 @@ pub(crate) fn read_compressed_positions(
         }
         if run > 0 {
             // Let's read the next coordinate.
-            thiscoord.fill(0);
+            coord.fill(0);
 
             for k in (0..run).step_by(3) {
                 decodeints(
@@ -105,43 +94,34 @@ pub(crate) fn read_compressed_positions(
                     &mut state,
                     smallidx as u32,
                     sizesmall,
-                    &mut thiscoord,
+                    &mut coord,
                 );
                 read_idx += 1;
-                thiscoord[0] += prevcoord[0] - smallnum;
-                thiscoord[1] += prevcoord[1] - smallnum;
-                thiscoord[2] += prevcoord[2] - smallnum;
+                coord[0] += prevcoord[0] - smallnum;
+                coord[1] += prevcoord[1] - smallnum;
+                coord[2] += prevcoord[2] - smallnum;
                 if k == 0 {
                     // Swap the first and second atom. This is done to achieve better compression
                     // for water atoms. Waters are stored as OHH, but right now we want to swap the
                     // atoms such that e.g., water will become HOH again.
-                    std::mem::swap(&mut thiscoord[0], &mut prevcoord[0]);
-                    std::mem::swap(&mut thiscoord[1], &mut prevcoord[1]);
-                    std::mem::swap(&mut thiscoord[2], &mut prevcoord[2]);
-                    thiscoord_fl[0] = prevcoord[0] as f32 * inv_precision;
-                    thiscoord_fl[1] = prevcoord[1] as f32 * inv_precision;
-                    thiscoord_fl[2] = prevcoord[2] as f32 * inv_precision;
+                    std::mem::swap(&mut coord[0], &mut prevcoord[0]);
+                    std::mem::swap(&mut coord[1], &mut prevcoord[1]);
+                    std::mem::swap(&mut coord[2], &mut prevcoord[2]);
+                    *position = prevcoord;
                     write_idx += 1;
-                    // thiscoord_fl = &mut data[write_idx * 3..(write_idx + 1) * 3];
-                    thiscoord_fl = positions.get_mut(write_idx * 3..(write_idx + 1) * 3).unwrap();
+                    position = positions.array_chunks_mut().nth(write_idx).unwrap();
                 } else {
-                    prevcoord[0] = thiscoord[0];
-                    prevcoord[1] = thiscoord[1];
-                    prevcoord[2] = thiscoord[2];
+                    prevcoord = coord;
                 }
-                thiscoord_fl[0] = thiscoord[0] as f32 * inv_precision;
-                thiscoord_fl[1] = thiscoord[1] as f32 * inv_precision;
-                thiscoord_fl[2] = thiscoord[2] as f32 * inv_precision;
+                *position = coord;
                 write_idx += 1;
-                thiscoord_fl = match positions.get_mut(write_idx * 3..(write_idx + 1) * 3) {
-                    Some(c) => c,
+                position = match positions.array_chunks_mut().nth(write_idx) {
+                    Some(c) => c.try_into().unwrap(),
                     None => break,
                 };
             }
         } else {
-            thiscoord_fl[0] = thiscoord[0] as f32 * inv_precision;
-            thiscoord_fl[1] = thiscoord[1] as f32 * inv_precision;
-            thiscoord_fl[2] = thiscoord[2] as f32 * inv_precision;
+            *position = coord;
             write_idx += 1;
         }
 
@@ -169,7 +149,8 @@ pub(crate) fn read_compressed_positions(
 }
 
 pub(crate) fn read_boxvec(file: &mut impl std::io::Read) -> std::io::Result<BoxVec> {
-    let boxvec: Vec<_> = read_f32s(file, 9)?.collect();
+    let mut boxvec = [0.0; 9];
+    read_f32s(file, &mut boxvec)?;
     let cols = [
         [boxvec[0], boxvec[3], boxvec[6]],
         [boxvec[1], boxvec[4], boxvec[7]],
@@ -185,13 +166,11 @@ fn read_opaque(file: &mut impl std::io::Read, data: &mut Vec<u8>) -> std::io::Re
     file.read_exact(data)
 }
 
-pub(crate) fn read_f32s(
-    file: &mut impl std::io::Read,
-    n: usize,
-) -> std::io::Result<impl Iterator<Item = f32>> {
-    let mut buf = vec![0; n * 4]; // TODO: Gotta remove this.
-    file.read_exact(&mut buf)?;
-    Ok(buf.into_iter().array_chunks().map(f32::from_be_bytes))
+pub(crate) fn read_f32s(file: &mut impl std::io::Read, buf: &mut [f32]) -> std::io::Result<()> {
+    for value in buf {
+        *value = read_f32(file)?
+    }
+    Ok(())
 }
 
 // FIXME: These read_* functions are prime targets for a macro tbh.

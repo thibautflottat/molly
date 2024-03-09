@@ -1,3 +1,5 @@
+#![feature(iter_array_chunks)]
+
 use chemfiles::Trajectory;
 use molly::XTCReader;
 
@@ -22,8 +24,8 @@ fn main() -> std::io::Result<()> {
     while reader.read_frame(&mut frame).is_ok() {
         trajectory.read(&mut cfframe).unwrap();
 
-        for (a, &b) in frame.positions.chunks_exact(3).zip(cfframe.positions()) {
-            let a : [f32; 3] = a.iter().map(|&v| round_to(v, 3)).collect::<Vec<_>>().try_into().unwrap();
+        for (a, &b) in frame.coords().zip(cfframe.positions()) {
+            let a = a.to_array().map(|v| round_to(v, 3));
             let b = b.map(|v| v as f32 * 0.1).map(|v| round_to(v, 3));
             // eprintln!("a, b = {a:?}\t\t{b:?}");
             assert_eq!(a, b);

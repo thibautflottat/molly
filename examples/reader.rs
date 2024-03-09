@@ -11,7 +11,8 @@ fn main() -> std::io::Result<()> {
     let mut frame = molly::Frame::default();
 
     let mut n = 0;
-    while reader.read_frame(&mut frame).is_ok() {
+    let mut scratch = Vec::new();
+    while reader.read_frame_with_scratch(&mut frame,  &mut scratch).is_ok() {
         n += 1;
     }
     eprintln!("reader: read {n} frames");
