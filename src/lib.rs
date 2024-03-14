@@ -3,19 +3,17 @@
 use std::io::SeekFrom;
 use std::{cell::Cell, path::Path};
 
-use glam::{IVec3, Mat3, Vec3};
+use glam::{Mat3, Vec3};
 
 use crate::reader::{read_boxvec, read_compressed_positions, read_f32, read_f32s, read_i32};
-pub use crate::selection::Selection;
+pub use crate::selection::{AtomSelection, FrameSelection, Range};
 
 pub mod reader;
 mod selection;
 
 thread_local! {
     /// A scratch buffer to read encoded bytes into for subsequent decoding.
-    static SCRATCH: Cell<Vec<u8>> = Cell::new({
-    eprintln!("hey there");
-    Vec::new()});
+    static SCRATCH: Cell<Vec<u8>> = Cell::new(Vec::new());
 }
 
 pub type BoxVec = Mat3;
@@ -27,22 +25,12 @@ pub struct Frame {
     pub time: f32,
     pub boxvec: BoxVec,
     pub precision: f32,
-    pub positions: Vec<i32>,
+    pub positions: Vec<f32>,
 }
 
 impl Frame {
-    pub fn positions<'f>(&'f self) -> impl Iterator<Item = f32> + 'f {
-        let inv_precision = self.precision.recip();
-        self.positions
-            .iter()
-            .map(move |&v| v as f32 * inv_precision)
-    }
-
     pub fn coords<'f>(&'f self) -> impl Iterator<Item = Vec3> + 'f {
-        let inv_precision = self.precision.recip();
-        self.positions
-            .array_chunks()
-            .map(move |&c| IVec3::from_array(c).as_vec3() * inv_precision)
+        self.positions.array_chunks().map(|&c| Vec3::from_array(c))
     }
 }
 
@@ -92,9 +80,18 @@ impl<R: std::io::Read> XTCReader<R> {
 
     /// Reads and returns a [`Frame`] and advances one step.
     pub fn read_frame(&mut self, frame: &mut Frame) -> std::io::Result<()> {
+        self.read_frame_with_selection(frame, &AtomSelection::All)
+    }
+
+    /// Reads and returns a [`Frame`] according to the [`AtomSelection`], and advances one step.
+    pub fn read_frame_with_selection(
+        &mut self,
+        frame: &mut Frame,
+        atom_selection: &AtomSelection,
+    ) -> std::io::Result<()> {
         // Take the thread-local SCRATCH and use that while decoding the values.
         let mut scratch = SCRATCH.take();
-        self.read_frame_with_scratch(frame, &mut scratch)
+        self.read_frame_with_scratch(frame, &mut scratch, atom_selection)
     }
 
     /// Reads and returns a [`Frame`] and advances one step, internally reading the compressed data
@@ -114,6 +111,7 @@ impl<R: std::io::Read> XTCReader<R> {
         &mut self,
         frame: &mut Frame,
         scratch: &mut Vec<u8>,
+        atom_selection: &AtomSelection,
     ) -> std::io::Result<()> {
         let file = &mut self.file;
 
@@ -138,26 +136,48 @@ impl<R: std::io::Read> XTCReader<R> {
         assert_eq!(natoms, natoms_repeated);
 
         // Now, we read the atoms.
-        frame.positions.resize(natoms * 3, 0);
         if natoms <= 9 {
             // In case the number of atoms is very small, just read their uncompressed positions.
+            frame.positions.resize(natoms * 3, 0.0);
             let mut buf = [0.0; 9 * 3]; // We have at most 9 atoms, so we handle them on the stack.
-            let buf = &mut buf[..natoms * 9];
+            let buf = &mut buf[..natoms * 3];
             read_f32s(file, buf)?;
-
-            // Note that we do some cursed trickery here. In order to be able to write a i32
-            // positions buffer, we need to convert these direct floats to the i32s. A bit sad, but
-            // this case is extremely uncommon.
-            frame.precision = 1000.0;
-            let positions = buf.iter().map(|v| (v * frame.precision) as i32);
-
             frame.positions.truncate(0);
-            frame.positions.extend(positions);
+            frame.positions.extend(
+                buf.array_chunks()
+                    .enumerate()
+                    .filter_map(|(idx, pos): (usize, &[f32; 3])| {
+                        if atom_selection.is_included(idx).unwrap_or_default() {
+                            Some(pos)
+                        } else {
+                            None
+                        }
+                    })
+                    .flatten(),
+            );
+            // TODO: It is unclear to me what to do with the precision in this case. It is
+            // basically invalid, or just irrelevant here, since we don't decode them. They were
+            // never compressed to begin with.
         } else {
-            let precision = read_f32(file)?;
-            frame.precision = precision;
-            read_compressed_positions(file, &mut frame.positions, scratch)?;
-            scratch.truncate(0);
+            // If the atom_selection specifies fewer atoms, we will only allocate up to that point.
+            let natoms_selected = match atom_selection {
+                AtomSelection::All => natoms,
+                AtomSelection::IndexList(indices) => indices.len(),
+                AtomSelection::Mask(mask) => mask.iter().filter(|&&include| include).count(),
+                AtomSelection::Until(end) => *end as usize,
+            };
+            let natoms = usize::min(natoms, natoms_selected);
+
+            frame.positions.resize(natoms * 3, 0.0);
+            frame.precision = read_f32(file)?;
+            read_compressed_positions(
+                file,
+                &mut frame.positions,
+                frame.precision,
+                scratch,
+                atom_selection,
+            )?;
+            scratch.truncate(0); // FIXME: This is not actually necessary I think.
         }
 
         self.step += 1;
@@ -245,10 +265,15 @@ impl<R: std::io::Read + std::io::Seek> XTCReader<R> {
             .into_boxed_slice())
     }
 
-    /// Reads and returns a [`Frame`] and advances one step.
-    pub fn read_frame_at_offset(&mut self, frame: &mut Frame, offset: u64) -> std::io::Result<()> {
+    /// Seeks to offset, then reads and returns a [`Frame`] and advances one step.
+    pub fn read_frame_at_offset(
+        &mut self,
+        frame: &mut Frame,
+        offset: u64,
+        atom_selection: &AtomSelection,
+    ) -> std::io::Result<()> {
         self.file.seek(SeekFrom::Start(offset))?;
-        self.read_frame(frame)
+        self.read_frame_with_selection(frame, atom_selection)
     }
 
     /// Append [`Frame`]s to the `frames` buffer according to a [`Selection`].
@@ -258,16 +283,22 @@ impl<R: std::io::Read + std::io::Seek> XTCReader<R> {
     /// actually be read.
     pub fn read_frames(
         &mut self,
-        frames: &mut Vec<Frame>,
-        selection: Selection,
+        frames: &mut impl Extend<Frame>,
+        frame_selection: &FrameSelection,
+        atom_selection: &AtomSelection,
     ) -> std::io::Result<usize> {
         let offsets = self.determine_offsets()?;
-        let selected_offsets = selection.apply(offsets.iter());
-        let n = selected_offsets.len();
-        for &offset in selected_offsets {
+        let mut n = 0;
+        for (idx, &offset) in offsets.iter().enumerate() {
+            match frame_selection.is_included(idx) {
+                Some(true) => {}
+                Some(false) => continue,
+                None => break,
+            }
             let mut frame = Frame::default();
-            self.read_frame_at_offset(&mut frame, offset)?;
-            frames.push(frame);
+            self.read_frame_at_offset(&mut frame, offset, atom_selection)?;
+            frames.extend(Some(frame));
+            n += 1;
         }
 
         Ok(n)

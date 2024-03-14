@@ -1,5 +1,4 @@
-use crate::BoxVec;
-
+use crate::{selection::AtomSelection, BoxVec};
 
 struct DecodeState {
     count: usize,
@@ -23,12 +22,16 @@ pub const FIRSTIDX: usize = 9; // Note that MAGICINTS[FIRSTIDX-1] == 0.
 
 pub(crate) fn read_compressed_positions(
     file: &mut impl std::io::Read,
-    positions: &mut Vec<i32>,
+    positions: &mut Vec<f32>,
+    precision: f32,
     scratch: &mut Vec<u8>,
+    atom_selection: &AtomSelection,
 ) -> std::io::Result<()> {
     let n = positions.len();
     assert_eq!(n % 3, 0, "the length of `positions` must be divisible by 3");
     let natoms = n / 3;
+
+    let invprecision = precision.recip();
 
     let minint = [0; 3].try_map(|_| read_i32(file))?;
     let maxint = [0; 3].try_map(|_| read_i32(file))?;
@@ -60,7 +63,7 @@ pub(crate) fn read_compressed_positions(
     let mut read_idx = 0;
     while read_idx < natoms {
         let mut coord = [0i32; 3];
-        let mut position: &mut [i32; 3] = positions.array_chunks_mut().nth(write_idx).unwrap();
+        let mut position: &mut [f32; 3] = positions.array_chunks_mut().nth(write_idx).unwrap();
         if bitsize == 0 {
             coord[0] = decodebits(&compressed_data, &mut state, bitsizeint[0] as usize);
             coord[1] = decodebits(&compressed_data, &mut state, bitsizeint[1] as usize);
@@ -74,6 +77,20 @@ pub(crate) fn read_compressed_positions(
         coord[2] += minint[2];
         prevcoord = coord;
 
+        macro_rules! write_position {
+            ($position:ident, $write_idx:ident, $coord:ident  ) => {
+                match atom_selection.is_included($write_idx) {
+                    None => return Ok(()),
+                    Some(false) => {
+                }
+                    Some(true) => {
+                        *$position = $coord.map(|v| v as f32 * invprecision);
+                        $write_idx += 1;
+                    }
+                };
+            };
+        }
+
         let flag: bool = decodebits::<u8>(&compressed_data, &mut state, 1) > 0;
         let mut is_smaller = 0;
         if flag {
@@ -82,10 +99,12 @@ pub(crate) fn read_compressed_positions(
             run -= is_smaller;
             is_smaller -= 1;
         }
-        if run > 0 && write_idx * 3 + run as usize > n {
-            panic!("attempt to write a run beyond the positions buffer")
-        }
         if run > 0 {
+            if write_idx * 3 + run as usize > n {
+                // eprintln!("may attempt to write a run beyond the positions buffer");
+                // dbg!(write_idx, run, n, write_idx * 3 + run as usize);
+            }
+
             // Let's read the next coordinate.
             coord.fill(0);
 
@@ -108,22 +127,23 @@ pub(crate) fn read_compressed_positions(
                     std::mem::swap(&mut coord[0], &mut prevcoord[0]);
                     std::mem::swap(&mut coord[1], &mut prevcoord[1]);
                     std::mem::swap(&mut coord[2], &mut prevcoord[2]);
-                    *position = prevcoord;
-                    write_idx += 1;
-                    position = positions.array_chunks_mut().nth(write_idx).unwrap();
+                    write_position!(position, write_idx, prevcoord);
+                    // position = positions.array_chunks_mut().nth(write_idx).unwrap();
+                    position = match positions.array_chunks_mut().nth(write_idx) {
+                        Some(c) => c.try_into().unwrap(),
+                        None => break,
+                    };
                 } else {
                     prevcoord = coord;
                 }
-                *position = coord;
-                write_idx += 1;
+                write_position!(position, write_idx, coord);
                 position = match positions.array_chunks_mut().nth(write_idx) {
                     Some(c) => c.try_into().unwrap(),
                     None => break,
                 };
             }
         } else {
-            *position = coord;
-            write_idx += 1;
+            write_position!(position, write_idx, coord);
         }
 
         if is_smaller < 0 {

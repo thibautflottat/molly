@@ -1,4 +1,4 @@
-use chemfiles::{Trajectory, Frame};
+use chemfiles::{Frame, Trajectory};
 
 fn main() -> std::io::Result<()> {
     let path = std::env::args()
@@ -10,7 +10,9 @@ fn main() -> std::io::Result<()> {
     let mut frame = Frame::new();
 
     let mut n = 0;
-    while trajectory.read(&mut frame).is_ok() {n+=1}
+    while trajectory.read(&mut frame).is_ok() {
+        n += 1
+    }
     eprintln!("cfreader: read {n} frames");
 
     Ok(())

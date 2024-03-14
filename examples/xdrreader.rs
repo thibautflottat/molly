@@ -1,7 +1,6 @@
 use xdrfile::{Frame, Result, Trajectory, XTCTrajectory};
 
 fn main() -> Result<()> {
-
     let path = std::env::args()
         .skip(1)
         .nth(0)

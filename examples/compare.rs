@@ -9,10 +9,12 @@ fn round_to(v: f32, decimals: u32) -> f32 {
 }
 
 fn main() -> std::io::Result<()> {
-    let path = std::env::args()
-        .skip(1)
-        .nth(0)
+    let mut args = std::env::args()
+        .skip(1);
+    let path = args.next()
         .expect("please provide one xtc trajectory path");
+    let decimals: u32 = args.next().and_then(|d| d.parse().ok()).unwrap_or(3);
+    dbg!(decimals);
 
     let file = std::fs::File::open(&path)?;
     let mut reader = XTCReader::new(file);
@@ -25,8 +27,8 @@ fn main() -> std::io::Result<()> {
         trajectory.read(&mut cfframe).unwrap();
 
         for (a, &b) in frame.coords().zip(cfframe.positions()) {
-            let a = a.to_array().map(|v| round_to(v, 3));
-            let b = b.map(|v| v as f32 * 0.1).map(|v| round_to(v, 3));
+            let a = a.to_array().map(|v| round_to(v, decimals));
+            let b = b.map(|v| v as f32 * 0.1).map(|v| round_to(v, decimals));
             // eprintln!("a, b = {a:?}\t\t{b:?}");
             assert_eq!(a, b);
         }
