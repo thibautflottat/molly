@@ -11,9 +11,10 @@ use std::num::NonZeroU64;
 // undefined. This does not mean it is unsafe, but they cannot be interpreted as valid positions.
 // For Map a further invariant exists:
 //     len(Mask) <= len(encoded_atoms)
-#[derive(Debug, Clone)]
+#[derive(Debug, Default, Clone)]
 pub enum AtomSelection {
     /// Include all atoms.
+    #[default]
     All,
     /// A list of the indices of the positions to include in the selection.
     ///
@@ -58,9 +59,10 @@ impl AtomSelection {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Default, Clone)]
 pub enum FrameSelection {
     /// Include all frames that are in a trajectory.
+    #[default]
     All,
     /// Include frames that lie within a certain [`Range`].
     Range(Range),
