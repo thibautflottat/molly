@@ -24,7 +24,7 @@ pub const FIRSTIDX: usize = 9; // Note that MAGICINTS[FIRSTIDX-1] == 0.
 // given the atom_selection.
 pub(crate) fn read_compressed_positions(
     file: &mut impl std::io::Read,
-    positions: &mut Vec<f32>,
+    positions: &mut [f32],
     precision: f32,
     scratch: &mut Vec<u8>,
     atom_selection: &AtomSelection,
