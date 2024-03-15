@@ -13,7 +13,7 @@ pub mod selection;
 
 thread_local! {
     /// A scratch buffer to read encoded bytes into for subsequent decoding.
-    static SCRATCH: Cell<Vec<u8>> = Cell::new(Vec::new());
+    static SCRATCH: Cell<Vec<u8>> = const { Cell::new(Vec::new()) };
 }
 
 pub type BoxVec = Mat3;
