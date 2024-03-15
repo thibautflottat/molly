@@ -1,3 +1,5 @@
+use std::io::{self, Read};
+
 use crate::{selection::AtomSelection, BoxVec};
 
 struct DecodeState {
@@ -23,13 +25,13 @@ pub const FIRSTIDX: usize = 9; // Note that MAGICINTS[FIRSTIDX-1] == 0.
 // TODO: Amortize the read_opaque call such that not all data is read in at once if that's wasteful
 // given the atom_selection.
 #[inline]
-pub(crate) fn read_compressed_positions(
-    file: &mut impl std::io::Read,
+pub(crate) fn read_compressed_positions<R: Read>(
+    file: &mut R,
     positions: &mut [f32],
     precision: f32,
     scratch: &mut Vec<u8>,
     atom_selection: &AtomSelection,
-) -> std::io::Result<()> {
+) -> io::Result<()> {
     let n = positions.len();
     assert_eq!(n % 3, 0, "the length of `positions` must be divisible by 3");
     let natoms = n / 3;
@@ -174,7 +176,7 @@ pub(crate) fn read_compressed_positions(
 }
 
 #[inline]
-pub(crate) fn read_boxvec(file: &mut impl std::io::Read) -> std::io::Result<BoxVec> {
+pub(crate) fn read_boxvec<R: Read>(file: &mut R) -> io::Result<BoxVec> {
     let mut boxvec = [0.0; 9];
     read_f32s(file, &mut boxvec)?;
     let cols = [
@@ -185,14 +187,14 @@ pub(crate) fn read_boxvec(file: &mut impl std::io::Read) -> std::io::Result<BoxV
     Ok(BoxVec::from_cols_array_2d(&cols))
 }
 
-fn read_opaque(file: &mut impl std::io::Read, data: &mut Vec<u8>) -> std::io::Result<()> {
+fn read_opaque<R: Read>(file: &mut R, data: &mut Vec<u8>) -> io::Result<()> {
     let count = read_u32(file)? as usize;
     let padding = (4 - (count % 4)) % 4; // FIXME: Why, and also, can we do this better?
     data.resize(count + padding, 0);
     file.read_exact(data)
 }
 
-pub(crate) fn read_f32s(file: &mut impl std::io::Read, buf: &mut [f32]) -> std::io::Result<()> {
+pub(crate) fn read_f32s<R: Read>(file: &mut R, buf: &mut [f32]) -> io::Result<()> {
     for value in buf {
         *value = read_f32(file)?
     }
@@ -200,19 +202,19 @@ pub(crate) fn read_f32s(file: &mut impl std::io::Read, buf: &mut [f32]) -> std::
 }
 
 // FIXME: These read_* functions are prime targets for a macro tbh.
-pub(crate) fn read_f32(file: &mut impl std::io::Read) -> std::io::Result<f32> {
+pub(crate) fn read_f32<R: Read>(file: &mut R) -> io::Result<f32> {
     let mut buf: [u8; 4] = Default::default();
     file.read_exact(&mut buf)?;
     Ok(f32::from_be_bytes(buf))
 }
 
-pub(crate) fn read_i32(file: &mut impl std::io::Read) -> std::io::Result<i32> {
+pub(crate) fn read_i32<R: Read>(file: &mut R) -> io::Result<i32> {
     let mut buf: [u8; 4] = Default::default();
     file.read_exact(&mut buf)?;
     Ok(i32::from_be_bytes(buf))
 }
 
-fn read_u32(file: &mut impl std::io::Read) -> std::io::Result<u32> {
+fn read_u32<R: Read>(file: &mut R) -> io::Result<u32> {
     let mut buf: [u8; 4] = Default::default();
     file.read_exact(&mut buf)?;
     Ok(u32::from_be_bytes(buf))

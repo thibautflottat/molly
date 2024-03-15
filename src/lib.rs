@@ -1,6 +1,6 @@
 #![feature(array_chunks, iter_array_chunks, array_try_map)]
 
-use std::io::SeekFrom;
+use std::io::{self, SeekFrom};
 use std::{cell::Cell, path::Path};
 
 use glam::{Mat3, Vec3};
@@ -42,13 +42,13 @@ pub struct XTCReader<R> {
 }
 
 impl XTCReader<std::fs::File> {
-    pub fn open<P: AsRef<Path>>(path: P) -> std::io::Result<Self> {
+    pub fn open<P: AsRef<Path>>(path: P) -> io::Result<Self> {
         let file = std::fs::File::open(path)?;
         Ok(Self::new(file))
     }
 }
 
-impl<R: std::io::Read> XTCReader<R> {
+impl<R: io::Read> XTCReader<R> {
     pub const MAGIC: i32 = 1995;
 
     pub fn new(reader: R) -> Self {
@@ -62,14 +62,14 @@ impl<R: std::io::Read> XTCReader<R> {
     ///
     /// It is likely more efficient to use [`XTCReader::read_frame`] if you are only interested in
     /// the values of a single frame at a time.
-    pub fn read_all_frames(&mut self) -> std::io::Result<Box<[Frame]>> {
+    pub fn read_all_frames(&mut self) -> io::Result<Box<[Frame]>> {
         let mut frames = Vec::new();
         loop {
             let mut frame = Frame::default();
             if let Err(err) = self.read_frame(&mut frame) {
                 match err.kind() {
                     // We have found the end of the file. No more frames, we're done.
-                    std::io::ErrorKind::UnexpectedEof => break,
+                    io::ErrorKind::UnexpectedEof => break,
                     // Something else went wrong...
                     _ => Err(err)?,
                 }
@@ -80,7 +80,7 @@ impl<R: std::io::Read> XTCReader<R> {
     }
 
     /// Reads and returns a [`Frame`] and advances one step.
-    pub fn read_frame(&mut self, frame: &mut Frame) -> std::io::Result<()> {
+    pub fn read_frame(&mut self, frame: &mut Frame) -> io::Result<()> {
         self.read_frame_with_selection(frame, &AtomSelection::All)
     }
 
@@ -89,7 +89,7 @@ impl<R: std::io::Read> XTCReader<R> {
         &mut self,
         frame: &mut Frame,
         atom_selection: &AtomSelection,
-    ) -> std::io::Result<()> {
+    ) -> io::Result<()> {
         // Take the thread-local SCRATCH and use that while decoding the values.
         let mut scratch = SCRATCH.take();
         self.read_frame_with_scratch(frame, &mut scratch, atom_selection)
@@ -113,7 +113,7 @@ impl<R: std::io::Read> XTCReader<R> {
         frame: &mut Frame,
         scratch: &mut Vec<u8>,
         atom_selection: &AtomSelection,
-    ) -> std::io::Result<()> {
+    ) -> io::Result<()> {
         let file = &mut self.file;
 
         // Start of by reading the header.
@@ -191,11 +191,11 @@ impl<R: std::io::Read> XTCReader<R> {
     }
 }
 
-impl<R: std::io::Read + std::io::Seek> XTCReader<R> {
+impl<R: io::Read + io::Seek> XTCReader<R> {
     /// Reset the reader to its initial position.
     ///
     /// Go back to the first frame.
-    pub fn home(&mut self) -> std::io::Result<()> {
+    pub fn home(&mut self) -> io::Result<()> {
         self.file.seek(SeekFrom::Start(0))?;
         self.step = 0;
         Ok(())
@@ -216,7 +216,7 @@ impl<R: std::io::Read + std::io::Seek> XTCReader<R> {
     pub fn determine_offsets_exclusive(
         &mut self,
         until: Option<usize>,
-    ) -> std::io::Result<Box<[u64]>> {
+    ) -> io::Result<Box<[u64]>> {
         let file = &mut self.file;
         // Remember where we start so we can return to it later.
         let start_pos = file.stream_position()?;
@@ -227,7 +227,7 @@ impl<R: std::io::Read + std::io::Seek> XTCReader<R> {
             match read_i32(file) {
                 Ok(Self::MAGIC) => {}
                 Ok(weird) => panic!("found invalid magic number '{weird}' ({weird:#0x})"),
-                Err(err) if err.kind() == std::io::ErrorKind::UnexpectedEof => break,
+                Err(err) if err.kind() == io::ErrorKind::UnexpectedEof => break,
                 Err(err) => Err(err)?,
             };
             file.seek(SeekFrom::Current(84))?;
@@ -255,7 +255,7 @@ impl<R: std::io::Read + std::io::Seek> XTCReader<R> {
     /// # Errors
     ///
     /// This function will pass through any reader errors.
-    pub fn determine_offsets(&mut self, until: Option<usize>) -> std::io::Result<Box<[u64]>> {
+    pub fn determine_offsets(&mut self, until: Option<usize>) -> io::Result<Box<[u64]>> {
         let mut offsets = vec![0];
         let exclusive = self.determine_offsets_exclusive(until)?;
         offsets.extend(exclusive.iter().take(exclusive.len().saturating_sub(1)));
@@ -267,7 +267,7 @@ impl<R: std::io::Read + std::io::Seek> XTCReader<R> {
     /// # Errors
     ///
     /// This function will pass through any reader errors.
-    pub fn determine_frame_sizes(&mut self, until: Option<usize>) -> std::io::Result<Box<[u64]>> {
+    pub fn determine_frame_sizes(&mut self, until: Option<usize>) -> io::Result<Box<[u64]>> {
         let starts = self.determine_offsets_exclusive(until)?;
         let ends = starts.iter().clone().skip(1);
         Ok(starts
@@ -284,7 +284,7 @@ impl<R: std::io::Read + std::io::Seek> XTCReader<R> {
         frame: &mut Frame,
         offset: u64,
         atom_selection: &AtomSelection,
-    ) -> std::io::Result<()> {
+    ) -> io::Result<()> {
         self.file.seek(SeekFrom::Start(offset))?;
         self.read_frame_with_selection(frame, atom_selection)
     }
@@ -299,7 +299,7 @@ impl<R: std::io::Read + std::io::Seek> XTCReader<R> {
         frames: &mut impl Extend<Frame>,
         frame_selection: &FrameSelection,
         atom_selection: &AtomSelection,
-    ) -> std::io::Result<usize> {
+    ) -> io::Result<usize> {
         // TODO: Make this into a FrameSelection::until(&self) -> Option<usize>
         let until = match frame_selection {
             FrameSelection::All => None,
