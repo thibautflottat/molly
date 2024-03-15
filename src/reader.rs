@@ -22,6 +22,7 @@ pub const FIRSTIDX: usize = 9; // Note that MAGICINTS[FIRSTIDX-1] == 0.
 
 // TODO: Amortize the read_opaque call such that not all data is read in at once if that's wasteful
 // given the atom_selection.
+#[inline]
 pub(crate) fn read_compressed_positions(
     file: &mut impl std::io::Read,
     positions: &mut [f32],
@@ -172,6 +173,7 @@ pub(crate) fn read_compressed_positions(
     Ok(())
 }
 
+#[inline]
 pub(crate) fn read_boxvec(file: &mut impl std::io::Read) -> std::io::Result<BoxVec> {
     let mut boxvec = [0.0; 9];
     read_f32s(file, &mut boxvec)?;
@@ -240,6 +242,7 @@ fn calc_sizeint(
     sizeofints(*sizeint)
 }
 
+#[inline]
 const fn sizeofint(size: u32) -> u32 {
     let mut n = 1;
     let mut nbits = 0;
@@ -288,11 +291,47 @@ fn sizeofints(sizes: [u32; 3]) -> u32 {
     nbytes as u32 * 8 + nbits // FIXME: Check whether it is okay for nbytes to have the type of usize not u32
 }
 
-fn decodebits<T: TryFrom<u32> + std::fmt::Debug>(
-    buf: &[u8],
-    state: &mut DecodeState,
-    mut nbits: usize,
-) -> T {
+fn decodebyte(buf: &[u8], state: &mut DecodeState) -> u8 {
+    let mask = 0xff;
+
+    let DecodeState {
+        mut count,
+        mut lastbits,
+        lastbyte,
+    } = *state;
+    let mut lastbyte = lastbyte as u32;
+
+    let mut num = 0;
+    let mut nbits = 8;
+    while nbits >= 8 {
+        lastbyte = (lastbyte << 8) | buf[count] as u32;
+        count += 1;
+        num |= (lastbyte >> lastbits) << (nbits - 8);
+        nbits -= 8;
+    }
+
+    if nbits > 0 {
+        if lastbits < nbits {
+            lastbits += 8;
+            lastbyte = (lastbyte << 8) | buf[count] as u32;
+            count += 1;
+        }
+        lastbits -= nbits;
+        num |= (lastbyte >> lastbits) & mask;
+    }
+
+    num &= mask;
+    *state = DecodeState {
+        count,
+        lastbits,
+        lastbyte: (lastbyte & 0xff) as u8, // We don't care about anything but the last byte.
+    };
+
+    debug_assert_eq!(num & 0xff, num);
+    num as u8
+}
+
+fn decodebits<T: TryFrom<u32>>(buf: &[u8], state: &mut DecodeState, mut nbits: usize) -> T {
     let mask = (1 << nbits) - 1; // A string of ones that is nbits long.
 
     let DecodeState {
@@ -327,7 +366,6 @@ fn decodebits<T: TryFrom<u32> + std::fmt::Debug>(
         lastbyte: (lastbyte & 0xff) as u8, // We don't care about anything but the last byte.
     };
 
-    assert!(std::mem::size_of::<T>() * 8 >= nbits);
     match num.try_into() {
         Ok(n) => n,
         Err(_) => unreachable!(), // We just checked for that!
@@ -353,7 +391,7 @@ fn decodeints(
     let mut bytes = [0u8; 32];
     let mut nbytes: usize = 0;
     while nbits >= 8 {
-        bytes[nbytes] = decodebits(buf, state, 8);
+        bytes[nbytes] = decodebyte(buf, state);
         nbytes += 1;
         nbits -= 8;
     }
@@ -388,7 +426,7 @@ fn unpack_from_int_into_u32(
     let mut v: T = 0;
     let mut nbytes: usize = 0;
     while nbits >= 8 {
-        let byte: T = decodebits(buf, state, 8);
+        let byte: T = decodebyte(buf, state) as T;
         v |= byte << (8 * nbytes as u32);
         nbytes += 1;
         nbits -= 8;
@@ -421,7 +459,7 @@ fn unpack_from_int_into_u64(
     let mut v: T = 0;
     let mut nbytes: usize = 0;
     while nbits >= 8 {
-        let byte: T = decodebits(buf, state, 8);
+        let byte: T = decodebyte(buf, state) as T;
         v |= byte << (8 * nbytes as u32);
         nbytes += 1;
         nbits -= 8;
