@@ -6,10 +6,10 @@ use std::{cell::Cell, path::Path};
 use glam::{Mat3, Vec3};
 
 use crate::reader::{read_boxvec, read_compressed_positions, read_f32, read_f32s, read_i32};
-pub use crate::selection::{AtomSelection, FrameSelection, Range};
+use crate::selection::{AtomSelection, FrameSelection};
 
 pub mod reader;
-mod selection;
+pub mod selection;
 
 thread_local! {
     /// A scratch buffer to read encoded bytes into for subsequent decoding.

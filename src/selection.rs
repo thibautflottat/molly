@@ -11,6 +11,7 @@ use std::num::NonZeroU64;
 // undefined. This does not mean it is unsafe, but they cannot be interpreted as valid positions.
 // For Map a further invariant exists:
 //     len(Mask) <= len(encoded_atoms)
+/// A selection of atoms.
 #[derive(Debug, Default, Clone)]
 pub enum AtomSelection {
     /// Include all atoms.
@@ -59,6 +60,7 @@ impl AtomSelection {
     }
 }
 
+/// A selection of [`Frame`]s.
 #[derive(Debug, Default, Clone)]
 pub enum FrameSelection {
     /// Include all frames that are in a trajectory.
@@ -135,14 +137,6 @@ impl Range {
             sel.step = step;
         }
         sel
-    }
-
-    /// Apply the selection to an [`ExactSizeIterator`].
-    fn apply<T>(&self, it: impl ExactSizeIterator<Item = T>) -> impl ExactSizeIterator<Item = T> {
-        let end = self.end.unwrap_or(it.len() as u64) as usize;
-        it.take(end)
-            .skip(self.start as usize)
-            .step_by(self.step.get() as usize)
     }
 
     fn is_included(&self, idx: u64) -> Option<bool> {

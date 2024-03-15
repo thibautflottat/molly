@@ -1,4 +1,5 @@
-use molly::{AtomSelection, FrameSelection, Range, XTCReader};
+use molly::selection::{AtomSelection, FrameSelection, Range};
+use molly::XTCReader;
 
 fn main() -> std::io::Result<()> {
     let mut args = std::env::args().skip(1);
