@@ -173,9 +173,9 @@ pub(crate) fn read_boxvec(file: &mut impl std::io::Read) -> std::io::Result<BoxV
     let mut boxvec = [0.0; 9];
     read_f32s(file, &mut boxvec)?;
     let cols = [
-        [boxvec[0], boxvec[3], boxvec[6]],
-        [boxvec[1], boxvec[4], boxvec[7]],
-        [boxvec[2], boxvec[5], boxvec[8]],
+        [boxvec[0], boxvec[1], boxvec[2]],
+        [boxvec[3], boxvec[4], boxvec[5]],
+        [boxvec[6], boxvec[7], boxvec[8]],
     ];
     Ok(BoxVec::from_cols_array_2d(&cols))
 }
