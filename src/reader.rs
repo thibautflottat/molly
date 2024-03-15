@@ -8,7 +8,7 @@ struct DecodeState {
 
 // TODO: I have a constexpr laying around for this somewhere.
 #[rustfmt::skip]
-pub const  MAGICINTS : [i32; 73] = [
+pub const MAGICINTS: [i32; 73] = [
     0,        0,        0,       0,       0,       0,       0,       0,       0,       8,
     10,       12,       16,      20,      25,      32,      40,      50,      64,      80,
     101,      128,      161,     203,     256,     322,     406,     512,     645,     812,
