@@ -20,6 +20,8 @@ pub const  MAGICINTS : [i32; 73] = [
 ];
 pub const FIRSTIDX: usize = 9; // Note that MAGICINTS[FIRSTIDX-1] == 0.
 
+// TODO: Amortize the read_opaque call such that not all data is read in at once if that's wasteful
+// given the atom_selection.
 pub(crate) fn read_compressed_positions(
     file: &mut impl std::io::Read,
     positions: &mut Vec<f32>,

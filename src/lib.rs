@@ -290,6 +290,7 @@ impl<R: std::io::Read + std::io::Seek> XTCReader<R> {
         frame_selection: &FrameSelection,
         atom_selection: &AtomSelection,
     ) -> std::io::Result<usize> {
+        // TODO: Make this into a FrameSelection::until(&self) -> Option<usize>
         let until = match frame_selection {
             FrameSelection::All => None,
             FrameSelection::Range(range) => range.end.map(|end| end as usize),
