@@ -191,6 +191,15 @@ impl<R: std::io::Read> XTCReader<R> {
 }
 
 impl<R: std::io::Read + std::io::Seek> XTCReader<R> {
+    /// Reset the reader to its initial position.
+    ///
+    /// Go back to the first frame.
+    pub fn home(&mut self) -> std::io::Result<()> {
+        self.file.seek(SeekFrom::Start(0))?;
+        self.step = 0;
+        Ok(())
+    }
+
     /// Returns the offsets of this [`XTCReader<R>`].
     ///
     /// The last value points one byte after the last byte in the reader.
