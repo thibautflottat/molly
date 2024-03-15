@@ -9,10 +9,8 @@ fn round_to(v: f32, decimals: u32) -> f32 {
 }
 
 fn main() -> std::io::Result<()> {
-    let mut args = std::env::args()
-        .skip(1);
-    let path = args.next()
-        .expect("please provide one xtc trajectory path");
+    let mut args = std::env::args().skip(1);
+    let path = args.next().expect("please provide one xtc trajectory path");
     let decimals: u32 = args.next().and_then(|d| d.parse().ok()).unwrap_or(3);
     dbg!(decimals);
 
