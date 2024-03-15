@@ -29,7 +29,8 @@ pub struct Frame {
 }
 
 impl Frame {
-    pub fn coords<'f>(&'f self) -> impl Iterator<Item = Vec3> + 'f {
+    /// Returns an iterator over the coordinates stored in this [`Frame`].
+    pub fn coords(&self) -> impl Iterator<Item = Vec3> + '_ {
         self.positions.array_chunks().map(|&c| Vec3::from_array(c))
     }
 }
