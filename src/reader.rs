@@ -67,11 +67,11 @@ pub(crate) fn read_compressed_positions(
         let mut coord = [0i32; 3];
         let mut position: &mut [f32; 3] = positions.array_chunks_mut().nth(write_idx).unwrap();
         if bitsize == 0 {
-            coord[0] = decodebits(&compressed_data, &mut state, bitsizeint[0] as usize);
-            coord[1] = decodebits(&compressed_data, &mut state, bitsizeint[1] as usize);
-            coord[2] = decodebits(&compressed_data, &mut state, bitsizeint[2] as usize);
+            coord[0] = decodebits(compressed_data, &mut state, bitsizeint[0] as usize);
+            coord[1] = decodebits(compressed_data, &mut state, bitsizeint[1] as usize);
+            coord[2] = decodebits(compressed_data, &mut state, bitsizeint[2] as usize);
         } else {
-            decodeints(&compressed_data, &mut state, bitsize, sizeint, &mut coord);
+            decodeints(compressed_data, &mut state, bitsize, sizeint, &mut coord);
         }
 
         coord[0] += minint[0];
@@ -83,8 +83,7 @@ pub(crate) fn read_compressed_positions(
             ($position:ident, $write_idx:ident, $coord:ident  ) => {
                 match atom_selection.is_included($write_idx) {
                     None => return Ok(()),
-                    Some(false) => {
-                }
+                    Some(false) => {}
                     Some(true) => {
                         *$position = $coord.map(|v| v as f32 * invprecision);
                         $write_idx += 1;
@@ -93,10 +92,10 @@ pub(crate) fn read_compressed_positions(
             };
         }
 
-        let flag: bool = decodebits::<u8>(&compressed_data, &mut state, 1) > 0;
+        let flag: bool = decodebits::<u8>(compressed_data, &mut state, 1) > 0;
         let mut is_smaller = 0;
         if flag {
-            run = decodebits(&compressed_data, &mut state, 5);
+            run = decodebits(compressed_data, &mut state, 5);
             is_smaller = run % 3;
             run -= is_smaller;
             is_smaller -= 1;
@@ -112,7 +111,7 @@ pub(crate) fn read_compressed_positions(
 
             for k in (0..run).step_by(3) {
                 decodeints(
-                    &compressed_data,
+                    compressed_data,
                     &mut state,
                     smallidx as u32,
                     sizesmall,
@@ -130,9 +129,8 @@ pub(crate) fn read_compressed_positions(
                     std::mem::swap(&mut coord[1], &mut prevcoord[1]);
                     std::mem::swap(&mut coord[2], &mut prevcoord[2]);
                     write_position!(position, write_idx, prevcoord);
-                    // position = positions.array_chunks_mut().nth(write_idx).unwrap();
                     position = match positions.array_chunks_mut().nth(write_idx) {
-                        Some(c) => c.try_into().unwrap(),
+                        Some(c) => c,
                         None => break,
                     };
                 } else {
@@ -140,7 +138,7 @@ pub(crate) fn read_compressed_positions(
                 }
                 write_position!(position, write_idx, coord);
                 position = match positions.array_chunks_mut().nth(write_idx) {
-                    Some(c) => c.try_into().unwrap(),
+                    Some(c) => c,
                     None => break,
                 };
             }
@@ -148,22 +146,25 @@ pub(crate) fn read_compressed_positions(
             write_position!(position, write_idx, coord);
         }
 
-        if is_smaller < 0 {
-            smallidx -= 1;
-            smallnum = smaller;
-            if smallidx > FIRSTIDX {
-                smaller = MAGICINTS[smallidx - 1] / 2;
-            } else {
-                smaller = 0;
+        match is_smaller.cmp(&0) {
+            std::cmp::Ordering::Less => {
+                smallidx -= 1;
+                smallnum = smaller;
+                if smallidx > FIRSTIDX {
+                    smaller = MAGICINTS[smallidx - 1] / 2;
+                } else {
+                    smaller = 0;
+                }
             }
-        } else if is_smaller > 0 {
-            smallidx += 1;
-            smaller = smallnum;
-            smallnum = MAGICINTS[smallidx] / 2;
+            std::cmp::Ordering::Greater => {
+                smallidx += 1;
+                smaller = smallnum;
+                smallnum = MAGICINTS[smallidx] / 2;
+            }
+            std::cmp::Ordering::Equal => {}
         }
-        if MAGICINTS[smallidx] == 0 {
-            panic!("found an invalid size")
-        }
+
+        assert_ne!(MAGICINTS[smallidx], 0, "found an invalid size");
         sizesmall.fill(MAGICINTS[smallidx] as u32);
         read_idx += 1;
     }
