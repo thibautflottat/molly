@@ -10,7 +10,7 @@ fn main() -> std::io::Result<()> {
     let mut reader = XTCReader::new(file);
 
     let start = std::time::Instant::now();
-    let offsets = reader.determine_offsets()?;
+    let offsets = reader.determine_offsets(None)?;
     let end = std::time::Instant::now();
     let duration = (end - start).as_secs_f32() * 1000.0;
     let n = offsets.len();

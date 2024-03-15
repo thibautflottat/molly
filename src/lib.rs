@@ -203,14 +203,17 @@ impl<R: std::io::Read + std::io::Seek> XTCReader<R> {
     /// # Errors
     ///
     /// This function will pass through any reader errors.
-    pub fn determine_offsets_exclusive(&mut self) -> std::io::Result<Box<[u64]>> {
+    pub fn determine_offsets_exclusive(
+        &mut self,
+        until: Option<usize>,
+    ) -> std::io::Result<Box<[u64]>> {
         let file = &mut self.file;
         // Remember where we start so we can return to it later.
         let start_pos = file.stream_position()?;
 
         let mut offsets = Vec::new();
 
-        loop {
+        while until.map_or(true, |until| offsets.len() < until) {
             match read_i32(file) {
                 Ok(Self::MAGIC) => {}
                 Ok(weird) => panic!("found invalid magic number '{weird}' ({weird:#0x})"),
@@ -242,9 +245,9 @@ impl<R: std::io::Read + std::io::Seek> XTCReader<R> {
     /// # Errors
     ///
     /// This function will pass through any reader errors.
-    pub fn determine_offsets(&mut self) -> std::io::Result<Box<[u64]>> {
+    pub fn determine_offsets(&mut self, until: Option<usize>) -> std::io::Result<Box<[u64]>> {
         let mut offsets = vec![0];
-        let exclusive = self.determine_offsets_exclusive()?;
+        let exclusive = self.determine_offsets_exclusive(until)?;
         offsets.extend(exclusive.iter().take(exclusive.len().saturating_sub(1)));
         Ok(offsets.into_boxed_slice())
     }
@@ -254,8 +257,8 @@ impl<R: std::io::Read + std::io::Seek> XTCReader<R> {
     /// # Errors
     ///
     /// This function will pass through any reader errors.
-    pub fn determine_frame_sizes(&mut self) -> std::io::Result<Box<[u64]>> {
-        let starts = self.determine_offsets_exclusive()?;
+    pub fn determine_frame_sizes(&mut self, until: Option<usize>) -> std::io::Result<Box<[u64]>> {
+        let starts = self.determine_offsets_exclusive(until)?;
         let ends = starts.iter().clone().skip(1);
         Ok(starts
             .iter()
@@ -287,7 +290,12 @@ impl<R: std::io::Read + std::io::Seek> XTCReader<R> {
         frame_selection: &FrameSelection,
         atom_selection: &AtomSelection,
     ) -> std::io::Result<usize> {
-        let offsets = self.determine_offsets()?;
+        let until = match frame_selection {
+            FrameSelection::All => None,
+            FrameSelection::Range(range) => range.end.map(|end| end as usize),
+            FrameSelection::FrameList(list) => Some(list.iter().max().copied().unwrap_or_default()),
+        };
+        let offsets = self.determine_offsets(until)?;
         let mut n = 0;
         for (idx, &offset) in offsets.iter().enumerate() {
             match frame_selection.is_included(idx) {
