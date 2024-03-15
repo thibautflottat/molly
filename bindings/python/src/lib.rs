@@ -39,6 +39,7 @@ struct XTCReader {
 
 #[pymethods]
 impl XTCReader {
+    /// Open a file as an `XTCReader`.
     #[new]
     fn open(path: PathBuf) -> io::Result<Self> {
         let inner = molly::XTCReader::open(path)?;
@@ -50,10 +51,12 @@ impl XTCReader {
         self.frame.clone() // FIXME: Is there a way around this?
     }
 
+    /// Reset the reading head to the start of the file.
     fn home(&mut self) -> PyResult<()> {
         Ok(self.inner.home()?)
     }
 
+    /// Read a single frame into the `frame` field of the `XTCReader`.
     fn read_frame(&mut self) -> io::Result<()> {
         if self.frame.is_none() {
             self.frame = Some(Frame::default());
@@ -62,6 +65,15 @@ impl XTCReader {
         self.inner.read_frame(frame)
     }
 
+    /// Read a single frame and return a copy.
+    ///
+    /// Calls `read_frame` internally and returns the frame immediately.
+    fn pop_frame(&mut self) -> io::Result<Frame> {
+        self.read_frame()?;
+        Ok(self.frame.clone().unwrap())
+    }
+
+    /// Read frames according to the selections and return the frames as a list.
     fn read_frames(
         &mut self,
         frame_selection: Option<FrameSelection>,
@@ -170,6 +182,9 @@ impl XTCReader {
     }
 }
 
+/// A single trajectory frame.
+///
+/// All distances are given in nanometers.
 #[pyclass]
 #[derive(Default, Clone)]
 struct Frame {
@@ -205,6 +220,9 @@ impl Frame {
         self.inner.precision
     }
 
+    /// Get the positions as an `np.ndarray`.
+    ///
+    /// Distances in nanometers.
     #[getter]
     fn get_positions<'py>(&self, py: Python<'py>) -> &'py PyArray<f32, Ix2> {
         // Fingers crossed we don't make any position lists of which the length isn't a multiple of
@@ -218,6 +236,8 @@ impl Frame {
 }
 
 /// Read xtc files, fast.
+///
+/// Marieke Westendorp, 2024.
 #[pymodule]
 fn _molly(_py: Python<'_>, m: &PyModule) -> PyResult<()> {
     // m.add_function(wrap_pyfunction!(function_name, m)?)?;
