@@ -1,0 +1,281 @@
+#![allow(non_local_definitions, dead_code)]
+
+use std::io;
+use std::num::NonZeroU64;
+use std::path::PathBuf;
+
+use glam::Vec3;
+use molly::selection;
+use numpy::ndarray::{Array, Axis, Ix2};
+use numpy::{IntoPyArray, Ix3, PyArray};
+use pyo3::exceptions::{PyTypeError, PyValueError};
+use pyo3::prelude::*;
+use pyo3::types::{PyIterator, PyList, PySlice};
+
+type BoxVec = [[f32; 3]; 3];
+
+#[derive(Debug, Default)]
+struct FrameSelection(selection::FrameSelection);
+#[derive(Debug, Default)]
+struct AtomSelection(selection::AtomSelection);
+
+impl From<FrameSelection> for selection::FrameSelection {
+    fn from(val: FrameSelection) -> Self {
+        val.0
+    }
+}
+
+impl From<AtomSelection> for selection::AtomSelection {
+    fn from(val: AtomSelection) -> Self {
+        val.0
+    }
+}
+
+#[pyclass]
+struct XTCReader {
+    inner: molly::XTCReader<std::fs::File>,
+    frame: Option<Frame>,
+}
+
+#[pymethods]
+impl XTCReader {
+    #[new]
+    fn open(path: PathBuf) -> io::Result<Self> {
+        let inner = molly::XTCReader::open(path)?;
+        Ok(Self { inner, frame: None })
+    }
+
+    #[getter]
+    fn get_frame(&self) -> Option<Frame> {
+        self.frame.clone() // FIXME: Is there a way around this?
+    }
+
+    fn home(&mut self) -> PyResult<()> {
+        Ok(self.inner.home()?)
+    }
+
+    fn read_frame(&mut self) -> io::Result<()> {
+        if self.frame.is_none() {
+            self.frame = Some(Frame::default());
+        }
+        let frame = &mut self.frame.as_mut().unwrap().inner;
+        self.inner.read_frame(frame)
+    }
+
+    fn read_frames(
+        &mut self,
+        frame_selection: Option<FrameSelection>,
+        atom_selection: Option<AtomSelection>,
+    ) -> io::Result<Vec<Frame>> {
+        let mut frames = Vec::new();
+        self.inner.read_frames(
+            &mut frames,
+            &frame_selection.unwrap_or_default().into(),
+            &atom_selection.unwrap_or_default().into(),
+        )?;
+        Ok(frames.into_iter().map(|frame| frame.into()).collect())
+    }
+
+    /// Read all frames into the provided `numpy.ndarray`.
+    ///
+    /// The `array` must have a shape of `(3, natoms, nframes)`.
+    ///
+    /// Returns `True` if the reading operation was successful.
+    fn read_into_array(
+        &mut self,
+        py: Python<'_>,
+        coordinate_array: &PyArray<f32, Ix3>,
+        boxvec_array: &PyArray<f32, Ix3>,
+        frame_selection: Option<FrameSelection>,
+        atom_selection: Option<AtomSelection>,
+    ) -> PyResult<bool> {
+        {
+            // Verify that the shapes of the arrays are correct.
+            let &[nf_coords, na, d] = coordinate_array.shape() else {
+                return Err(PyValueError::new_err(
+                    ("coordinate array should have 3 dimensions").to_string(),
+                ));
+            };
+            if d != 3 {
+                return Err(PyValueError::new_err(format!(
+                    "incorrect shape: coordinate array must be of shape (nframes, natoms, 3), found {:?}",
+                    (nf_coords, na, d)
+                )));
+            }
+            let &[nf_boxvecs, a, b] = coordinate_array.shape() else {
+                return Err(PyValueError::new_err(
+                    "boxvec array should have 3 dimensions".to_string(),
+                ));
+            };
+            if d != 3 {
+                return Err(PyValueError::new_err(format!(
+                    "incorrect shape: boxvec array must be of shape (nframes, 3, 3), found {:?}",
+                    (nf_boxvecs, a, b)
+                )));
+            }
+            if nf_coords != nf_boxvecs {
+                return Err(PyValueError::new_err(format!(
+                    "the number of frames defined in the coordinate and boxvec arrays do not match, {:?} != {:?}",
+                    (nf_coords, na, d),
+                    (nf_boxvecs, a, b)
+                )));
+            }
+        }
+
+        let mut coordinates = coordinate_array.readwrite();
+        let mut coordinates = coordinates.as_array_mut();
+        let mut boxvecs = boxvec_array.readwrite();
+        let mut boxvecs = boxvecs.as_array_mut();
+
+        let atom_selection: selection::AtomSelection = atom_selection.unwrap_or_default().into();
+        let mut frame = molly::Frame::default();
+        let until =
+            frame_selection.and_then(|FrameSelection(frame_selection)| match frame_selection {
+                selection::FrameSelection::All => None,
+                selection::FrameSelection::Range(range) => range.end.map(|end| end as usize),
+                selection::FrameSelection::FrameList(list) => {
+                    Some(list.iter().max().copied().unwrap_or_default())
+                }
+            });
+        let offsets = self.inner.determine_frame_sizes(until)?;
+        for ((mut array_coordinates, mut array_boxvecs), &offset) in coordinates
+            .axis_iter_mut(Axis(0))
+            .zip(boxvecs.axis_iter_mut(Axis(0)))
+            .zip(offsets.iter())
+        {
+            py.check_signals()?;
+            self.inner
+                .read_frame_at_offset(&mut frame, offset, &atom_selection)?;
+            // TODO: Check whether the two unwraps here can just be elided somehow.
+            array_coordinates
+                .rows_mut()
+                .into_iter()
+                .zip(frame.coords())
+                .for_each(|(mut array_coord, frame_coord)| {
+                    // Unwrap should be fine here, since we checked the sizes before.
+                    frame_coord.write_to_slice(array_coord.as_slice_mut().unwrap())
+                });
+            array_boxvecs
+                .columns_mut()
+                .into_iter()
+                .zip(frame.boxvec.to_cols_array_2d())
+                .for_each(|(mut array_boxvec, frame_boxvec)| {
+                    // Unwrap should be fine here, since we checked the sizes before.
+                    Vec3::from_array(frame_boxvec)
+                        .write_to_slice(array_boxvec.as_slice_mut().unwrap())
+                });
+        }
+
+        Ok(true)
+    }
+}
+
+#[pyclass]
+#[derive(Default, Clone)]
+struct Frame {
+    inner: molly::Frame,
+}
+
+impl From<molly::Frame> for Frame {
+    fn from(frame: molly::Frame) -> Self {
+        Self { inner: frame }
+    }
+}
+
+#[pymethods]
+impl Frame {
+    #[getter]
+    fn get_step(&self) -> u32 {
+        self.inner.step
+    }
+
+    #[getter]
+    fn get_time(&self) -> f32 {
+        self.inner.time
+    }
+
+    /// The box vectors of this frame as an array of columns of a 3×3 matrix.
+    #[getter]
+    fn get_box(&self) -> BoxVec {
+        self.inner.boxvec.to_cols_array_2d()
+    }
+
+    #[getter]
+    fn get_precision(&self) -> f32 {
+        self.inner.precision
+    }
+
+    #[getter]
+    fn get_positions<'py>(&self, py: Python<'py>) -> &'py PyArray<f32, Ix2> {
+        // Fingers crossed we don't make any position lists of which the length isn't a multiple of
+        // 3... This is a guarantee from the implementation, so It's Fine(tm).
+        let positions = &self.inner.positions;
+        let natoms = positions.len() / 3;
+        Array::from_shape_vec((natoms, 3), positions.clone())
+            .unwrap()
+            .into_pyarray(py)
+    }
+}
+
+/// Read xtc files, fast.
+#[pymodule]
+fn _molly(_py: Python<'_>, m: &PyModule) -> PyResult<()> {
+    // m.add_function(wrap_pyfunction!(function_name, m)?)?;
+    m.add_class::<XTCReader>()?;
+
+    Ok(())
+}
+
+impl FromPyObject<'_> for FrameSelection {
+    fn extract(ob: &PyAny) -> PyResult<Self> {
+        if let Ok(selection) = ob.downcast::<PySlice>() {
+            // TODO: This getattr business seems silly, but maybe it's necessary?
+            let start = selection.getattr("start")?.extract().ok();
+            let end = selection.getattr("stop")?.extract().ok();
+            let step = selection.getattr("step")?.extract::<NonZeroU64>().ok();
+            let range = selection::Range::new(start, end, step);
+            return Ok(FrameSelection(selection::FrameSelection::Range(range)));
+        }
+
+        if let Ok(it) = ob.downcast::<PyIterator>() {
+            if let Ok(indices) = it
+                .iter()?
+                .map(|i| i.and_then(PyAny::extract::<usize>))
+                .collect::<PyResult<Vec<usize>>>()
+            {
+                return Ok(FrameSelection(selection::FrameSelection::FrameList(
+                    indices,
+                )));
+            }
+        }
+
+        Err(PyTypeError::new_err("Cannot select frames with this type"))
+    }
+}
+
+impl FromPyObject<'_> for AtomSelection {
+    fn extract(ob: &PyAny) -> PyResult<Self> {
+        if let Ok(until) = ob.extract::<u32>() {
+            return Ok(AtomSelection(selection::AtomSelection::Until(until)));
+        }
+
+        if let Ok(list) = ob.downcast::<PyList>() {
+            if let Ok(bools) = list
+                .iter()
+                .map(PyAny::extract::<bool>)
+                .collect::<PyResult<Vec<bool>>>()
+            {
+                return Ok(AtomSelection(selection::AtomSelection::Mask(bools)));
+            }
+            if let Ok(indices) = list
+                .iter()
+                .map(PyAny::extract::<u32>)
+                .collect::<PyResult<Vec<u32>>>()
+            {
+                return Ok(AtomSelection(selection::AtomSelection::IndexList(indices)));
+            }
+        }
+
+        Err(PyTypeError::new_err("Cannot select atoms with this type"))
+    }
+}
