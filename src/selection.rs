@@ -161,3 +161,120 @@ impl Default for Range {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    mod frame {
+        use std::num::NonZeroU64;
+
+        use super::{FrameSelection, Range};
+
+        #[test]
+        fn zero_selection() {
+            let list_empty = FrameSelection::FrameList(vec![]);
+            let list_zero = FrameSelection::FrameList(vec![0]);
+            let range_empty = FrameSelection::Range(Range::new(None, Some(0), None));
+
+            for idx in 0..1000 {
+                assert!(list_empty.is_included(idx).is_none());
+                if idx > 0 {
+                    assert!(list_zero.is_included(idx).is_none());
+                }
+                assert!(range_empty.is_included(idx).is_none());
+            }
+        }
+
+        #[test]
+        fn first_n() {
+            let n = 100;
+            let step = NonZeroU64::new(17).unwrap();
+
+            let list = FrameSelection::FrameList((0..=n).collect());
+            let until = FrameSelection::Range(Range::new(None, Some(n as u64), None));
+            let from_n = FrameSelection::Range(Range::new(Some(n as u64), None, None));
+            let until_stepped = FrameSelection::Range(Range::new(None, Some(n as u64), Some(step)));
+            let from_n_stepped =
+                FrameSelection::Range(Range::new(Some(n as u64), None, Some(step)));
+            let all = FrameSelection::All;
+
+            for idx in 0..2 * n {
+                if idx < n {
+                    assert_eq!(list.is_included(idx), Some(true));
+                    assert_eq!(until.is_included(idx), Some(true));
+                    assert_eq!(
+                        until_stepped.is_included(idx),
+                        Some(idx as u64 % step.get() == 0),
+                    );
+                } else {
+                    assert!(list.is_included(idx).is_none());
+                    assert!(until.is_included(idx).is_none());
+                    assert!(until_stepped.is_included(idx).is_none());
+                }
+                let from_n_included = idx >= n;
+                assert_eq!(from_n.is_included(idx), Some(from_n_included));
+                assert_eq!(
+                    from_n_stepped.is_included(idx),
+                    Some(from_n_included && (n as u64 + idx as u64) % step.get() == 0),
+                );
+                assert_eq!(all.is_included(idx), Some(true));
+            }
+        }
+    }
+
+    mod atom {
+        use super::AtomSelection;
+
+        #[test]
+        fn zero_selection() {
+            let m = 100;
+
+            let mask_empty = AtomSelection::Mask(vec![]);
+            let mask_false = AtomSelection::Mask(vec![false; m]);
+            let list_empty = AtomSelection::IndexList(vec![]);
+            let list_zero = AtomSelection::IndexList(vec![0]);
+            let until_zero = AtomSelection::Until(0);
+
+            for idx in 0..1000 {
+                assert!(mask_empty.is_included(idx).is_none());
+                if idx < m {
+                    assert_eq!(mask_false.is_included(idx), Some(false));
+                } else {
+                    assert!(mask_false.is_included(idx).is_none());
+                }
+                assert!(list_empty.is_included(idx).is_none());
+                assert!(list_zero.is_included(idx).is_none());
+                if idx > 0 {
+                    assert!(until_zero.is_included(idx).is_none());
+                } else {
+                    assert_eq!(until_zero.is_included(idx), Some(true));
+                }
+            }
+        }
+
+        #[test]
+        fn first_n() {
+            let n = 100;
+            let mask = AtomSelection::Mask(vec![true; n]);
+            let mask_trailing_false = AtomSelection::Mask([vec![true; n], vec![false; n]].concat());
+            let list = AtomSelection::IndexList((0..=n as u32).collect());
+            let until = AtomSelection::Until(n as u32 - 1);
+            let all = AtomSelection::All;
+
+            for idx in 0..2 * n {
+                if idx < n {
+                    assert_eq!(mask.is_included(idx), Some(true));
+                    assert_eq!(list.is_included(idx), Some(true));
+                    assert_eq!(until.is_included(idx), Some(true));
+                } else {
+                    assert!(mask.is_included(idx).is_none());
+                    assert!(list.is_included(idx).is_none());
+                    assert!(until.is_included(idx).is_none());
+                }
+                assert_eq!(mask_trailing_false.is_included(idx), Some(idx < n));
+                assert_eq!(all.is_included(idx), Some(true));
+            }
+        }
+    }
+}
