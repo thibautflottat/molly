@@ -115,7 +115,7 @@ pub struct Range {
     ///
     /// In case the end is unbounded ([`None`]), a `Selection` instructs the `XTCReader` to just
     /// read up to and including the last frame. If it is bounded by [`Some`] value, the frames up
-    /// to that index will be read.
+    /// to that index will be read. So, when `end` is bounded, it is an exclusive bound.
     pub end: Option<u64>,
     /// The `step` describes the number of frames that passed in each stride.
     ///
@@ -141,13 +141,13 @@ impl Range {
 
     fn is_included(&self, idx: u64) -> Option<bool> {
         if let Some(end) = self.end {
-            // TODO: Better syntax with some range idk?
-            if end < idx {
+            // Determine whether `idx` is already beyond the defined range.
+            if end <= idx {
                 return None;
             }
-        };
-        let in_range = self.start < idx;
-        let in_step = (idx + self.start) % self.step == 0;
+        }
+        let in_range = self.start <= idx;
+        let in_step = self.step.get() == 1 || (idx + self.start) % self.step == 0;
         Some(in_range && in_step)
     }
 }
