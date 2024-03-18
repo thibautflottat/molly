@@ -272,11 +272,8 @@ fn sizeofints(sizes: [u32; 3]) -> u32 {
             bytecount += 1;
         }
         while tmp != 0 {
-            bytes[{
-                let t = bytecount;
-                bytecount += 1;
-                t
-            }] = (tmp & 0xff) as u8;
+            bytes[bytecount] = (tmp & 0xff) as u8;
+            bytecount += 1;
             tmp >>= 8;
         }
         nbytes = bytecount;
