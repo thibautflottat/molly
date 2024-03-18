@@ -125,15 +125,17 @@ impl<R: io::Read> XTCReader<R> {
         );
         let natoms: usize = read_i32(file)?
             .try_into()
-            .expect("natoms must be a positive integer");
+            .map_err(|err| io::Error::other(format!("could not read natoms: {err}")))?;
         let step: u32 = read_i32(file)?
             .try_into()
-            .expect("step must be a positive integer");
+            .map_err(|err| io::Error::other(format!("could not read step: {err}")))?;
         let time = read_f32(file)?;
 
         // Read the frame data.
         let boxvec = read_boxvec(file)?;
-        let natoms_repeated = read_i32(file)?.try_into().unwrap();
+        let natoms_repeated = read_i32(file)?
+            .try_into()
+            .map_err(|err| io::Error::other(format!("could not read second natoms: {err}")))?;
         assert_eq!(natoms, natoms_repeated);
 
         // Now, we read the atoms.
@@ -209,11 +211,6 @@ impl<R: io::Read + io::Seek> XTCReader<R> {
     /// frame offsets _from_ its position are determined. If you wish to determine the offsets from
     /// the initial reader position, call [`XTCReader::home`] before calling this function.
     ///
-    /// # Panics
-    ///
-    /// Panics if the value at an offset is not the [magic number][`Self::MAGIC`]. If this is the
-    /// case, something seriously weird has occurred.
-    ///
     /// # Errors
     ///
     /// This function will pass through any reader errors.
@@ -227,14 +224,18 @@ impl<R: io::Read + io::Seek> XTCReader<R> {
         while until.map_or(true, |until| offsets.len() < until) {
             match read_i32(file) {
                 Ok(Self::MAGIC) => {}
-                Ok(weird) => panic!("found invalid magic number '{weird}' ({weird:#0x})"),
+                Ok(weird) => Err(io::Error::other(format!(
+                    "found invalid magic number '{weird}' ({weird:#0x})"
+                )))?,
                 Err(err) if err.kind() == io::ErrorKind::UnexpectedEof => break,
                 Err(err) => Err(err)?,
             };
             file.seek(SeekFrom::Current(84))?;
-            let skip: u64 = read_i32(file)?.try_into().unwrap();
+            let skip: u64 = read_i32(file)?
+                .try_into()
+                .map_err(|err| io::Error::other(format!("could not read frame size: {err}")))?;
             let padding = (4 - (skip as i64 % 4)) % 4; // FIXME: Why, and also, can we do this better?
-            let offset = file.seek(SeekFrom::Current(skip as i64 + padding)).unwrap();
+            let offset = file.seek(SeekFrom::Current(skip as i64 + padding))?;
             offsets.push(offset);
         }
 
@@ -251,11 +252,6 @@ impl<R: io::Read + io::Seek> XTCReader<R> {
     /// If this function is called when the internal reader is not at its starting position, the
     /// frame offsets _from_ its position are determined. If you wish to determine the offsets from
     /// the initial reader position, call [`XTCReader::home`] before calling this function.
-    ///
-    /// # Panics
-    ///
-    /// Panics if the value at an offset is not the [magic number][`Self::MAGIC`]. If this is the
-    /// case, something seriously weird has occurred.
     ///
     /// # Errors
     ///
