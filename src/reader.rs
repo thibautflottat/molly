@@ -83,8 +83,8 @@ pub(crate) fn read_compressed_positions<R: Read>(
         prevcoord = coord;
 
         macro_rules! write_position {
-            ($position:ident, $write_idx:ident, $coord:ident  ) => {
-                match atom_selection.is_included($write_idx) {
+            ($position:ident, $write_idx:ident, $read_idx:ident, $coord:ident  ) => {
+                match atom_selection.is_included($read_idx) {
                     None => return Ok(()),
                     Some(false) => {}
                     Some(true) => {
@@ -131,7 +131,7 @@ pub(crate) fn read_compressed_positions<R: Read>(
                     std::mem::swap(&mut coord[0], &mut prevcoord[0]);
                     std::mem::swap(&mut coord[1], &mut prevcoord[1]);
                     std::mem::swap(&mut coord[2], &mut prevcoord[2]);
-                    write_position!(position, write_idx, prevcoord);
+                    write_position!(position, write_idx, read_idx, prevcoord);
                     position = match positions.array_chunks_mut().nth(write_idx) {
                         Some(c) => c,
                         None => break,
@@ -139,14 +139,14 @@ pub(crate) fn read_compressed_positions<R: Read>(
                 } else {
                     prevcoord = coord;
                 }
-                write_position!(position, write_idx, coord);
+                write_position!(position, write_idx, read_idx, coord);
                 position = match positions.array_chunks_mut().nth(write_idx) {
                     Some(c) => c,
                     None => break,
                 };
             }
         } else {
-            write_position!(position, write_idx, coord);
+            write_position!(position, write_idx, read_idx, coord);
         }
 
         match is_smaller.cmp(&0) {
