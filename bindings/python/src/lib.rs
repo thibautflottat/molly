@@ -51,6 +51,14 @@ impl XTCReader {
         self.frame.clone() // FIXME: Is there a way around this?
     }
 
+    fn determine_offsets(&mut self, until: Option<usize>) -> io::Result<Vec<u64>> {
+        self.inner.determine_offsets(until).map(|l| l.to_vec())
+    }
+
+    fn determine_frame_sizes(&mut self, until: Option<usize>) -> io::Result<Vec<u64>> {
+        self.inner.determine_frame_sizes(until).map(|l| l.to_vec())
+    }
+
     /// Reset the reading head to the start of the file.
     fn home(&mut self) -> PyResult<()> {
         Ok(self.inner.home()?)
@@ -143,19 +151,31 @@ impl XTCReader {
 
         let atom_selection: selection::AtomSelection = atom_selection.unwrap_or_default().into();
         let mut frame = molly::Frame::default();
-        let until =
-            frame_selection.and_then(|FrameSelection(frame_selection)| match frame_selection {
+        let until = frame_selection
+            .as_ref()
+            .and_then(|FrameSelection(selection)| match selection {
                 selection::FrameSelection::All => None,
                 selection::FrameSelection::Range(range) => range.end.map(|end| end as usize),
                 selection::FrameSelection::FrameList(list) => {
-                    Some(list.iter().max().copied().unwrap_or_default())
+                    Some(list.iter().max().copied().unwrap_or_default()) // TODO: This may be slow.
                 }
             });
-        let offsets = self.inner.determine_frame_sizes(until)?;
+        let offsets = self.inner.determine_offsets(until)?;
+        let offsets = offsets.iter().enumerate().filter_map(|(idx, offset)| {
+            if let Some(FrameSelection(selection)) = &frame_selection {
+                match selection.is_included(idx) {
+                    Some(true) => Some(offset),
+                    Some(false) => None,
+                    None => None,
+                }
+            } else {
+                Some(offset)
+            }
+        });
         for ((mut array_coordinates, mut array_boxvecs), &offset) in coordinates
             .axis_iter_mut(Axis(0))
             .zip(boxvecs.axis_iter_mut(Axis(0)))
-            .zip(offsets.iter())
+            .zip(offsets)
         {
             py.check_signals()?;
             self.inner
@@ -173,10 +193,10 @@ impl XTCReader {
                 .columns_mut()
                 .into_iter()
                 .zip(frame.boxvec.to_cols_array_2d())
-                .for_each(|(mut array_boxvec, frame_boxvec)| {
-                    // Unwrap should be fine here, since we checked the sizes before.
-                    Vec3::from_array(frame_boxvec)
-                        .write_to_slice(array_boxvec.as_slice_mut().unwrap())
+                .for_each(|(array_boxvec, frame_boxvec)| {
+                    for (&frame_value, array_value) in frame_boxvec.iter().zip(array_boxvec) {
+                        *array_value = frame_value
+                    }
                 });
         }
 
