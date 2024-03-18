@@ -90,7 +90,9 @@ impl XTCReader {
 
     /// Read all frames into the provided `numpy.ndarray`.
     ///
-    /// The `array` must have a shape of `(3, natoms, nframes)`.
+    /// The `coordinate_array` must have a shape of `(nframes, natoms, 3)`.
+    ///
+    /// The `boxvec_array` must have a shape of `(nframes, 3, 3)`.
     ///
     /// Returns `True` if the reading operation was successful.
     fn read_into_array(
