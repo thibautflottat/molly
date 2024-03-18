@@ -105,8 +105,8 @@ pub(crate) fn read_compressed_positions<R: Read>(
         }
         if run > 0 {
             if write_idx * 3 + run as usize > n {
-                // eprintln!("may attempt to write a run beyond the positions buffer");
-                // dbg!(write_idx, run, n, write_idx * 3 + run as usize);
+                eprintln!("may attempt to write a run beyond the positions buffer");
+                dbg!(write_idx, run, n, write_idx * 3 + run as usize);
             }
 
             // Let's read the next coordinate.
