@@ -201,9 +201,13 @@ impl<R: io::Read + io::Seek> XTCReader<R> {
         Ok(())
     }
 
-    /// Returns the offsets of this [`XTCReader<R>`].
+    /// Returns the offsets from the headers in this [`XTCReader<R>`] from its current position.
     ///
     /// The last value points one byte after the last byte in the reader.
+    ///
+    /// If this function is called when the internal reader is not at its starting position, the
+    /// frame offsets _from_ its position are determined. If you wish to determine the offsets from
+    /// the initial reader position, call [`XTCReader::home`] before calling this function.
     ///
     /// # Panics
     ///
@@ -240,9 +244,13 @@ impl<R: io::Read + io::Seek> XTCReader<R> {
         Ok(offsets.into_boxed_slice())
     }
 
-    /// Returns the offsets of this [`XTCReader<R>`].
+    /// Returns the offsets of this [`XTCReader<R>`] from its current position.
     ///
     /// The last value points to the start of the last frame.
+    ///
+    /// If this function is called when the internal reader is not at its starting position, the
+    /// frame offsets _from_ its position are determined. If you wish to determine the offsets from
+    /// the initial reader position, call [`XTCReader::home`] before calling this function.
     ///
     /// # Panics
     ///
