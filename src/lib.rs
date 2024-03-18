@@ -213,10 +213,7 @@ impl<R: io::Read + io::Seek> XTCReader<R> {
     /// # Errors
     ///
     /// This function will pass through any reader errors.
-    pub fn determine_offsets_exclusive(
-        &mut self,
-        until: Option<usize>,
-    ) -> io::Result<Box<[u64]>> {
+    pub fn determine_offsets_exclusive(&mut self, until: Option<usize>) -> io::Result<Box<[u64]>> {
         let file = &mut self.file;
         // Remember where we start so we can return to it later.
         let start_pos = file.stream_position()?;
