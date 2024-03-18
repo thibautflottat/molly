@@ -220,7 +220,6 @@ fn read_u32<R: Read>(file: &mut R) -> io::Result<u32> {
     Ok(u32::from_be_bytes(buf))
 }
 
-// CHECKED(2024-03-07 11:51): Looks good.
 fn calc_sizeint(
     minint: [i32; 3],
     maxint: [i32; 3],
@@ -402,7 +401,7 @@ fn decodeints(
         nbytes += 1;
     }
 
-    for i in (0..2).rev() {
+    for i in (1..=2).rev() {
         let mut num: u32 = 0;
         for j in 0..nbytes {
             let k = nbytes - 1 - j;
