@@ -10,6 +10,7 @@ mod trajectories {
     pub const TEN: &str = "tests/trajectories/xtc_test_only_10_frame_10_atoms.xtc";
     pub const XYZ: &str = "tests/trajectories/xyz_random_walk.xtc";
     pub const BAD: &str = "tests/trajectories/bad.xtc";
+    pub const DELINYAH: &str = "tests/trajectories/delinyah_smaller.xtc";
 }
 
 mod open {
@@ -53,6 +54,11 @@ mod open {
     #[test]
     fn open_bad() -> std::io::Result<()> {
         open(trajectories::BAD)
+    }
+
+    #[test]
+    fn open_delinyah() -> std::io::Result<()> {
+        open(trajectories::DELINYAH)
     }
 }
 
@@ -128,6 +134,11 @@ mod home {
     #[test]
     fn home_bad() -> std::io::Result<()> {
         home(trajectories::BAD)
+    }
+
+    #[test]
+    fn home_delinyah() -> std::io::Result<()> {
+        home(trajectories::DELINYAH)
     }
 }
 
@@ -242,5 +253,10 @@ mod compare {
     #[test]
     fn compare_bad() -> std::io::Result<()> {
         compare(trajectories::BAD)
+    }
+
+    #[test]
+    fn compare_delinyah() -> std::io::Result<()> {
+        compare(trajectories::DELINYAH)
     }
 }
