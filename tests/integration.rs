@@ -182,7 +182,6 @@ mod compare {
             assert_eq!(molly_positions.len(), xdr_positions.len());
             assert_eq!(cf_positions.len(), xdr_positions.len()); // For clarity.
 
-            dbg!(&molly_positions[..4]); // LEFT OFF (2024-03-17 14:38): It's fucked for the tests/test.xtc. No clue why, and no clue when this crept in.
             for i in 0..molly_positions.len() {
                 let molly_pos = molly_positions[i];
                 let cf_pos = cf_positions[i].map(|v| (v * 0.1) as f32); // Convert to nm.
@@ -258,5 +257,76 @@ mod compare {
     #[test]
     fn compare_delinyah() -> std::io::Result<()> {
         compare(trajectories::DELINYAH)
+    }
+}
+
+mod selections {
+    use std::num::NonZeroU64;
+
+    use molly::selection::{AtomSelection as AS, FrameSelection as FS, Range};
+
+    use super::*;
+
+    fn count(
+        reader: &mut molly::XTCReader<std::fs::File>,
+        frames: &mut Vec<molly::Frame>,
+        frame_selection: FS,
+        atom_selection: AS,
+    ) -> std::io::Result<usize> {
+        reader.read_frames(frames, &frame_selection, &atom_selection)?;
+        let nframes = frames.len();
+        frames.clear();
+        reader.home()?;
+        Ok(nframes)
+    }
+
+    #[rustfmt::skip::macros(assert_eq)]
+    fn frame_selections(path: impl AsRef<Path>) -> std::io::Result<()> {
+        let mut reader = molly::XTCReader::open(&path)?;
+        let mut frames = Vec::new();
+        let reader = &mut reader;
+        let frames = &mut frames;
+
+        // All frames.
+        assert_eq!(count(reader, frames, FS::All, AS::All)?, 1001);
+        // FrameSelection should be independent of the atoms that are selected.
+        assert_eq!(count(reader, frames, FS::All, AS::Until(100))?, 1001);
+        // This Range should be identical to FS::All.
+        assert_eq!(count(reader, frames, FS::Range(Range::new(None, None, None)), AS::All)?, 1001);
+
+        // Read half of the frames.
+        assert_eq!(count(reader, frames, FS::Range(Range::new(None, None, NonZeroU64::new(2))), AS::All)?, 501);
+        // Read with a huge step.
+        assert_eq!(count(reader, frames, FS::Range(Range::new(None, None, NonZeroU64::new(2000))), AS::All)?, 1);
+        // Read the last couple of frames.
+        assert_eq!(count(reader, frames, FS::Range(Range::new(Some(981), None, None)), AS::All)?, 20);
+        // Read the last couple of frames with a step.
+        assert_eq!(count(reader, frames, FS::Range(Range::new(Some(981), None, NonZeroU64::new(3))), AS::All)?, 7);
+        // Read a clamped range.
+        assert_eq!(count(reader, frames, FS::Range(Range::new(Some(500), Some(750), None)), AS::All)?, 250);
+        // Read a clamped range with a step.
+        assert_eq!(count(reader, frames, FS::Range(Range::new(Some(500), Some(750), NonZeroU64::new(5))), AS::All)?, 50);
+
+        // Read according to a list of indices.
+        assert_eq!(count(reader, frames, FS::FrameList(vec![0, 1, 500]), AS::All)?, 3);
+        // Read the first frame.
+        assert_eq!(count(reader, frames, FS::FrameList(vec![0]), AS::All)?, 1);
+        // Read a single frame at some index.
+        assert_eq!(count(reader, frames, FS::FrameList(vec![100]), AS::All)?, 1);
+        // Read only the last index.
+        assert_eq!(count(reader, frames, FS::FrameList(vec![1000]), AS::All)?, 1);
+        // Read just past the last index.
+        assert_eq!(count(reader, frames, FS::FrameList(vec![1001]), AS::All)?, 0);
+        // Read according to a list of indices with some beyond the last frame.
+        assert_eq!(count(reader, frames, FS::FrameList(vec![0, 1, 500, 2000]), AS::All)?, 3);
+        // Read according to an empty list.
+        assert_eq!(count(reader, frames, FS::FrameList(vec![]), AS::All)?, 0);
+
+        Ok(())
+    }
+
+    #[test]
+    fn frame_selections_smol() -> std::io::Result<()> {
+        frame_selections(trajectories::SMOL)
     }
 }

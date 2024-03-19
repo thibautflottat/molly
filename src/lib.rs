@@ -304,7 +304,9 @@ impl<R: io::Read + io::Seek> XTCReader<R> {
         let until = match frame_selection {
             FrameSelection::All => None,
             FrameSelection::Range(range) => range.end.map(|end| end as usize),
-            FrameSelection::FrameList(list) => Some(list.iter().max().copied().unwrap_or_default()),
+            FrameSelection::FrameList(list) => {
+                Some(list.iter().max().copied().unwrap_or_default() + 1)
+            }
         };
         let offsets = self.determine_offsets(until)?;
         let mut n = 0;

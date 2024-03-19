@@ -88,7 +88,7 @@ impl FrameSelection {
             FrameSelection::All => Some(true),
             FrameSelection::Range(range) => range.is_included(idx as u64),
             FrameSelection::FrameList(indices) => {
-                if *indices.last()? <= idx {
+                if *indices.last()? < idx {
                     None
                 } else {
                     Some(indices.contains(&idx)) // TODO: This may be a very bad thing.
