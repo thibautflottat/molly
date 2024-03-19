@@ -17,10 +17,6 @@ pub enum AtomSelection {
     /// Include all atoms.
     #[default]
     All,
-    /// A list of the indices of the positions to include in the selection.
-    ///
-    /// Invariant: The indices are _unique_ and _consecutive_.
-    IndexList(Vec<u32>),
     /// A mask of the positions to include in the selection.
     ///
     /// If the value of the mask at an index `n` is `true`, the position at that same index `n` is
@@ -34,6 +30,22 @@ pub enum AtomSelection {
 }
 
 impl AtomSelection {
+    /// Create a boolean mask from a list of indices.
+    pub fn from_index_list(indices: &[u32]) -> Self {
+        let max = match indices.iter().max() {
+            Some(&max) => max as usize + 1,
+            None => return Self::Mask(Vec::new()),
+        };
+        let mut mask = Vec::with_capacity(max);
+        mask.resize(max, false);
+
+        for &idx in indices {
+            mask[idx as usize] = true;
+        }
+
+        Self::Mask(mask)
+    }
+
     /// Determine whether some index `idx` is included in this [`AtomSelection`].
     ///
     /// Will return [`None`] once the index is beyond the scope of this `AtomSelection`.
@@ -41,13 +53,6 @@ impl AtomSelection {
         let idx = idx as u32;
         match self {
             AtomSelection::All => Some(true),
-            AtomSelection::IndexList(indices) => {
-                if indices.last()? <= &idx {
-                    None
-                } else {
-                    Some(indices.contains(&idx)) // TODO: This may be a very bad thing.
-                }
-            }
             AtomSelection::Mask(mask) => mask.get(idx as usize).copied(),
             AtomSelection::Until(until) => {
                 if &idx <= until {
@@ -232,8 +237,8 @@ mod tests {
 
             let mask_empty = AtomSelection::Mask(vec![]);
             let mask_false = AtomSelection::Mask(vec![false; m]);
-            let list_empty = AtomSelection::IndexList(vec![]);
-            let list_zero = AtomSelection::IndexList(vec![0]);
+            let list_empty = AtomSelection::from_index_list(&vec![]);
+            let list_zero = AtomSelection::from_index_list(&vec![0]);
             let until_zero = AtomSelection::Until(0);
 
             for idx in 0..1000 {
@@ -244,11 +249,12 @@ mod tests {
                     assert!(mask_false.is_included(idx).is_none());
                 }
                 assert!(list_empty.is_included(idx).is_none());
-                assert!(list_zero.is_included(idx).is_none());
                 if idx > 0 {
                     assert!(until_zero.is_included(idx).is_none());
+                    assert!(list_zero.is_included(idx).is_none());
                 } else {
                     assert_eq!(until_zero.is_included(idx), Some(true));
+                    assert_eq!(list_zero.is_included(idx), Some(true));
                 }
             }
         }
@@ -258,7 +264,7 @@ mod tests {
             let n = 100;
             let mask = AtomSelection::Mask(vec![true; n]);
             let mask_trailing_false = AtomSelection::Mask([vec![true; n], vec![false; n]].concat());
-            let list = AtomSelection::IndexList((0..=n as u32).collect());
+            let list = AtomSelection::from_index_list(&(0..n as u32).collect::<Vec<_>>());
             let until = AtomSelection::Until(n as u32 - 1);
             let all = AtomSelection::All;
 

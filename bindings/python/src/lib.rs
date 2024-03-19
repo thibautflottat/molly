@@ -314,7 +314,7 @@ impl FromPyObject<'_> for AtomSelection {
                 .map(PyAny::extract::<u32>)
                 .collect::<PyResult<Vec<u32>>>()
             {
-                return Ok(AtomSelection(selection::AtomSelection::IndexList(indices)));
+                return Ok(AtomSelection(selection::AtomSelection::from_index_list(&indices)));
             }
         }
 

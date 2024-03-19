@@ -165,7 +165,6 @@ impl<R: io::Read> XTCReader<R> {
             // If the atom_selection specifies fewer atoms, we will only allocate up to that point.
             let natoms_selected = match atom_selection {
                 AtomSelection::All => natoms,
-                AtomSelection::IndexList(indices) => indices.len(),
                 AtomSelection::Mask(mask) => mask.iter().filter(|&&include| include).count(),
                 AtomSelection::Until(end) => *end as usize,
             };
