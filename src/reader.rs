@@ -104,10 +104,11 @@ pub fn read_compressed_positions<R: Read>(
             is_smaller -= 1;
         }
         if run > 0 {
-            if write_idx * 3 + run as usize > n {
-                eprintln!("may attempt to write a run beyond the positions buffer");
-                dbg!(write_idx, run, n, write_idx * 3 + run as usize);
-            }
+            // TODO: Investigate whether this is something we can just remove. I believe it may be.
+            // if write_idx * 3 + run as usize > n {
+            //     eprintln!("may attempt to write a run beyond the positions buffer");
+            //     dbg!(write_idx, run, n, write_idx * 3 + run as usize);
+            // }
 
             // Let's read the next coordinate.
             coord.fill(0);
