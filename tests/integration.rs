@@ -267,7 +267,14 @@ mod selections {
 
     use super::*;
 
-    fn count(
+    const PATH: &str = trajectories::SMOL;
+
+    /// Read frames according to some [`FrameSelection`] and [`AtomSelection`] and return the
+    /// number of frames that were read.
+    ///
+    /// After reading these, the `frames` buffer will be cleared and the reader returns home, such
+    /// that the reader is in its orginal state again.
+    fn count_frames(
         reader: &mut molly::XTCReader<std::fs::File>,
         frames: &mut Vec<molly::Frame>,
         frame_selection: FS,
@@ -280,53 +287,103 @@ mod selections {
         Ok(nframes)
     }
 
-    #[rustfmt::skip::macros(assert_eq)]
-    fn frame_selections(path: impl AsRef<Path>) -> std::io::Result<()> {
-        let mut reader = molly::XTCReader::open(&path)?;
-        let mut frames = Vec::new();
-        let reader = &mut reader;
-        let frames = &mut frames;
-
-        // All frames.
-        assert_eq!(count(reader, frames, FS::All, AS::All)?, 1001);
-        // FrameSelection should be independent of the atoms that are selected.
-        assert_eq!(count(reader, frames, FS::All, AS::Until(100))?, 1001);
-        // This Range should be identical to FS::All.
-        assert_eq!(count(reader, frames, FS::Range(Range::new(None, None, None)), AS::All)?, 1001);
-
-        // Read half of the frames.
-        assert_eq!(count(reader, frames, FS::Range(Range::new(None, None, NonZeroU64::new(2))), AS::All)?, 501);
-        // Read with a huge step.
-        assert_eq!(count(reader, frames, FS::Range(Range::new(None, None, NonZeroU64::new(2000))), AS::All)?, 1);
-        // Read the last couple of frames.
-        assert_eq!(count(reader, frames, FS::Range(Range::new(Some(981), None, None)), AS::All)?, 20);
-        // Read the last couple of frames with a step.
-        assert_eq!(count(reader, frames, FS::Range(Range::new(Some(981), None, NonZeroU64::new(3))), AS::All)?, 7);
-        // Read a clamped range.
-        assert_eq!(count(reader, frames, FS::Range(Range::new(Some(500), Some(750), None)), AS::All)?, 250);
-        // Read a clamped range with a step.
-        assert_eq!(count(reader, frames, FS::Range(Range::new(Some(500), Some(750), NonZeroU64::new(5))), AS::All)?, 50);
-
-        // Read according to a list of indices.
-        assert_eq!(count(reader, frames, FS::FrameList(vec![0, 1, 500]), AS::All)?, 3);
-        // Read the first frame.
-        assert_eq!(count(reader, frames, FS::FrameList(vec![0]), AS::All)?, 1);
-        // Read a single frame at some index.
-        assert_eq!(count(reader, frames, FS::FrameList(vec![100]), AS::All)?, 1);
-        // Read only the last index.
-        assert_eq!(count(reader, frames, FS::FrameList(vec![1000]), AS::All)?, 1);
-        // Read just past the last index.
-        assert_eq!(count(reader, frames, FS::FrameList(vec![1001]), AS::All)?, 0);
-        // Read according to a list of indices with some beyond the last frame.
-        assert_eq!(count(reader, frames, FS::FrameList(vec![0, 1, 500, 2000]), AS::All)?, 3);
-        // Read according to an empty list.
-        assert_eq!(count(reader, frames, FS::FrameList(vec![]), AS::All)?, 0);
-
-        Ok(())
+    /// Read frames according to some [`FrameSelection`] and [`AtomSelection`] and assert that the
+    /// number of frames that were read is equal to `expected`.
+    macro_rules! assert_frames {
+        ($frame_selection:expr, $atom_selection:expr => $expected:expr) => {{
+            let mut reader = molly::XTCReader::open(&PATH)?;
+            let mut frames = Vec::new();
+            let reader = &mut reader;
+            let frames = &mut frames;
+            assert_eq!(
+                count_frames(reader, frames, $frame_selection, $atom_selection)?,
+                $expected
+            );
+            Ok(())
+        }};
     }
 
+    /// All frames.
     #[test]
-    fn frame_selections_smol() -> std::io::Result<()> {
-        frame_selections(trajectories::SMOL)
+    fn all_frames() -> std::io::Result<()> {
+        reader!(FS::All, AS::All => 1001)
+    }
+
+    /// FrameSelection should be independent of the atoms that are selected.
+    #[test]
+    fn all_frames_with_atom_selection() -> std::io::Result<()> {
+        reader!(FS::All, AS::Until(100) => 1001)
+    }
+    /// This Range should be identical to FS::All.
+    #[test]
+    fn range_all() -> std::io::Result<()> {
+        reader!(FS::Range(Range::new(None, None, None)), AS::All => 1001)
+    }
+
+    /// Read half of the frames.
+    #[test]
+    fn range_half() -> std::io::Result<()> {
+        reader!(FS::Range(Range::new(None, None, NonZeroU64::new(2))), AS::All => 501)
+    }
+    /// Read with a huge step.
+    #[test]
+    fn range_huge_step() -> std::io::Result<()> {
+        reader!(FS::Range(Range::new(None, None, NonZeroU64::new(2000))), AS::All => 1)
+    }
+    /// Read the last couple of frames.
+    #[test]
+    fn range_last_frames() -> std::io::Result<()> {
+        reader!(FS::Range(Range::new(Some(981), None, None)), AS::All => 20)
+    }
+    /// Read the last couple of frames with a step.
+    #[test]
+    fn range_last_frames_step() -> std::io::Result<()> {
+        reader!(FS::Range(Range::new(Some(981), None, NonZeroU64::new(3))), AS::All => 7)
+    }
+    /// Read a clamped range.
+    #[test]
+    fn range_clamped() -> std::io::Result<()> {
+        reader!(FS::Range(Range::new(Some(500), Some(750), None)), AS::All => 250)
+    }
+    /// Read a clamped range with a step.
+    #[test]
+    fn range_clamped_step() -> std::io::Result<()> {
+        reader!(FS::Range(Range::new(Some(500), Some(750), NonZeroU64::new(5))), AS::All => 50)
+    }
+
+    /// Read according to a list of indices.
+    #[test]
+    fn indices() -> std::io::Result<()> {
+        reader!(FS::FrameList(vec![0, 1, 500]), AS::All => 3)
+    }
+    /// Read the first frame.
+    #[test]
+    fn indices_first_frame() -> std::io::Result<()> {
+        reader!(FS::FrameList(vec![0]), AS::All =>1)
+    }
+    /// Read a single frame at some index.
+    #[test]
+    fn indices_single_frame() -> std::io::Result<()> {
+        reader!(FS::FrameList(vec![100]), AS::All => 1)
+    }
+    /// Read only the last index.
+    #[test]
+    fn indices_last_frame() -> std::io::Result<()> {
+        reader!(FS::FrameList(vec![1000]), AS::All => 1)
+    }
+    /// Read just past the last index.
+    #[test]
+    fn indices_after_last_frame() -> std::io::Result<()> {
+        reader!(FS::FrameList(vec![1001]), AS::All => 0)
+    }
+    /// Read according to a list of indices with some beyond the last frame.
+    #[test]
+    fn indices_within_range_and_outside() -> std::io::Result<()> {
+        reader!(FS::FrameList(vec![0, 1, 500, 2000]), AS::All => 3)
+    }
+    /// Read according to an empty list.
+    #[test]
+    fn indices_empty_list() -> std::io::Result<()> {
+        reader!(FS::FrameList(vec![]), AS::All => 0)
     }
 }
