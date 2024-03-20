@@ -25,7 +25,7 @@ pub const FIRSTIDX: usize = 9; // Note that MAGICINTS[FIRSTIDX-1] == 0.
 // TODO: Amortize the read_opaque call such that not all data is read in at once if that's wasteful
 // given the atom_selection.
 #[inline]
-pub(crate) fn read_compressed_positions<R: Read>(
+pub fn read_compressed_positions<R: Read>(
     file: &mut R,
     positions: &mut [f32],
     precision: f32,
