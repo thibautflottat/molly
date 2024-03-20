@@ -332,21 +332,23 @@ mod selections {
     mod frame_selection {
         use super::*;
 
+        const NFRAMES: usize = 1001;
+
         /// All frames.
         #[test]
         fn all_frames() -> std::io::Result<()> {
-            assert_frames!(FS::All, AS::All => 1001)
+            assert_frames!(FS::All, AS::All => NFRAMES)
         }
         /// FrameSelection should be independent of the atoms that are selected.
         #[test]
         fn all_frames_with_atom_selection() -> std::io::Result<()> {
-            assert_frames!(FS::All, AS::Until(100) => 1001)
+            assert_frames!(FS::All, AS::Until(100) => NFRAMES)
         }
 
         /// This Range should be identical to FS::All.
         #[test]
         fn range_all() -> std::io::Result<()> {
-            assert_frames!(FS::Range(Range::new(None, None, None)), AS::All => 1001)
+            assert_frames!(FS::Range(Range::new(None, None, None)), AS::All => NFRAMES)
         }
         /// Read half of the frames.
         #[test]
@@ -361,7 +363,7 @@ mod selections {
         /// Read the last couple of frames.
         #[test]
         fn range_last_frames() -> std::io::Result<()> {
-            assert_frames!(FS::Range(Range::new(Some(981), None, None)), AS::All => 20)
+            assert_frames!(FS::Range(Range::new(Some(NFRAMES as u64 - 20), None, None)), AS::All => 20)
         }
         /// Read the last couple of frames with a step.
         #[test]
@@ -397,17 +399,17 @@ mod selections {
         /// Read only the last index.
         #[test]
         fn indices_last_frame() -> std::io::Result<()> {
-            assert_frames!(FS::FrameList(vec![1000]), AS::All => 1)
+            assert_frames!(FS::FrameList(vec![NFRAMES - 1]), AS::All => 1)
         }
         /// Read just past the last index.
         #[test]
         fn indices_after_last_frame() -> std::io::Result<()> {
-            assert_frames!(FS::FrameList(vec![1001]), AS::All => 0)
+            assert_frames!(FS::FrameList(vec![NFRAMES]), AS::All => 0)
         }
         /// Read according to a list of indices with some beyond the last frame.
         #[test]
         fn indices_within_range_and_outside() -> std::io::Result<()> {
-            assert_frames!(FS::FrameList(vec![0, 1, 500, 2000]), AS::All => 3)
+            assert_frames!(FS::FrameList(vec![0, 1, 500, NFRAMES * 2]), AS::All => 3)
         }
         /// Read according to an empty list.
         #[test]
