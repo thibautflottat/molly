@@ -196,7 +196,7 @@ mod tests {
             let n = 100;
             let step = NonZeroU64::new(17).unwrap();
 
-            let list = FrameSelection::FrameList((0..=n).collect());
+            let list = FrameSelection::FrameList((0..n).collect());
             let until = FrameSelection::Range(Range::new(None, Some(n as u64), None));
             let from_n = FrameSelection::Range(Range::new(Some(n as u64), None, None));
             let until_stepped = FrameSelection::Range(Range::new(None, Some(n as u64), Some(step)));
