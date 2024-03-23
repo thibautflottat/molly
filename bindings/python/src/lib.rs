@@ -4,7 +4,6 @@ use std::io;
 use std::num::NonZeroU64;
 use std::path::PathBuf;
 
-use glam::Vec3;
 use molly::selection;
 use numpy::ndarray::{Array, Axis, Ix2};
 use numpy::{IntoPyArray, Ix3, PyArray};

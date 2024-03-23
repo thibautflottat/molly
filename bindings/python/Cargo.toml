@@ -11,4 +11,3 @@ crate-type = ["cdylib"]
 pyo3 = { version = "0.20.3", features = ["extension-module"] }
 molly = { path = "../.." }
 numpy = "0.20.0"
-glam = "0.25.0"
