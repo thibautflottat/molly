@@ -180,7 +180,7 @@ impl XTCReader {
                     (nf_coords, na, d)
                 )));
             }
-            let &[nf_boxvecs, a, b] = coordinate_array.shape() else {
+            let &[nf_boxvecs, a, b] = boxvec_array.shape() else {
                 return Err(PyValueError::new_err(
                     "boxvec array should have 3 dimensions".to_string(),
                 ));
