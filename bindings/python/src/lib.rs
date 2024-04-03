@@ -152,13 +152,7 @@ impl XTCReader {
         let mut frame = molly::Frame::default();
         let until = frame_selection
             .as_ref()
-            .and_then(|FrameSelection(selection)| match selection {
-                selection::FrameSelection::All => None,
-                selection::FrameSelection::Range(range) => range.end.map(|end| end as usize),
-                selection::FrameSelection::FrameList(list) => {
-                    Some(list.iter().max().copied().unwrap_or_default()) // TODO: This may be slow.
-                }
-            });
+            .and_then(|FrameSelection(selection)| selection.until());
         let offsets = self.inner.determine_offsets(until)?;
         let offsets = offsets.iter().enumerate().filter_map(|(idx, offset)| {
             if let Some(FrameSelection(selection)) = &frame_selection {
