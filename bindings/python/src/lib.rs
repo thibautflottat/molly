@@ -6,7 +6,7 @@ use std::path::PathBuf;
 
 use molly::selection;
 use numpy::ndarray::{Array, Axis, Ix2};
-use numpy::{IntoPyArray, Ix3, PyArray};
+use numpy::{IntoPyArray, Ix1, Ix3, PyArray};
 use pyo3::exceptions::{PyTypeError, PyValueError};
 use pyo3::prelude::*;
 use pyo3::types::{PyIterator, PyList, PySlice};
@@ -163,6 +163,7 @@ impl XTCReader {
         py: Python<'_>,
         coordinate_array: &PyArray<f32, Ix3>,
         boxvec_array: &PyArray<f32, Ix3>,
+        time_array: Option<&PyArray<f32, Ix1>>,
         frame_selection: Option<FrameSelection>,
         atom_selection: Option<AtomSelection>,
     ) -> PyResult<bool> {
@@ -197,12 +198,28 @@ impl XTCReader {
                     (nf_boxvecs, a, b)
                 )));
             }
+            if let Some(time_array) = time_array {
+                let &[nf_times] = time_array.shape() else {
+                    return Err(PyValueError::new_err(
+                        "time array should have 1 dimension".to_string(),
+                    ));
+                };
+                if nf_times != nf_coords {
+                    return Err(PyValueError::new_err(format!(
+                        "the number of frames defined in the coordinate and boxvec arrays does not match the number of frames defined in the time array, {:?} != {:?}",
+                        (nf_times,),
+                        (nf_boxvecs, a, b)
+                    )));
+                }
+            }
         }
 
         let mut coordinates = coordinate_array.readwrite();
         let mut coordinates = coordinates.as_array_mut();
         let mut boxvecs = boxvec_array.readwrite();
         let mut boxvecs = boxvecs.as_array_mut();
+        let mut times = time_array.map(|ts| ts.readwrite());
+        let mut times = times.as_mut().map(|ts| ts.as_array_mut());
 
         let atom_selection: selection::AtomSelection = atom_selection.unwrap_or_default().into();
         let mut frame = molly::Frame::default();
@@ -221,10 +238,12 @@ impl XTCReader {
                 Some(offset)
             }
         });
-        for ((mut array_coordinates, mut array_boxvecs), &offset) in coordinates
+        // TODO: Fix up this mess of zips.
+        for (i, ((mut array_coordinates, mut array_boxvecs), &offset)) in coordinates
             .axis_iter_mut(Axis(0))
             .zip(boxvecs.axis_iter_mut(Axis(0)))
             .zip(offsets)
+            .enumerate()
         {
             py.check_signals()?;
             self.inner
@@ -247,6 +266,9 @@ impl XTCReader {
                         *array_value = frame_value
                     }
                 });
+            if let Some(ref mut times) = times {
+                times[i] = frame.time;
+            }
         }
 
         Ok(true)
