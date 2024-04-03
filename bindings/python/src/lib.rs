@@ -30,6 +30,62 @@ impl From<AtomSelection> for selection::AtomSelection {
     }
 }
 
+impl FromPyObject<'_> for FrameSelection {
+    fn extract(ob: &PyAny) -> PyResult<Self> {
+        if let Ok(selection) = ob.downcast::<PySlice>() {
+            // TODO: This getattr business seems silly, but maybe it's necessary?
+            let start = selection.getattr("start")?.extract().ok();
+            let end = selection.getattr("stop")?.extract().ok();
+            let step = selection.getattr("step")?.extract::<NonZeroU64>().ok();
+            let range = selection::Range::new(start, end, step);
+            return Ok(FrameSelection(selection::FrameSelection::Range(range)));
+        }
+
+        if let Ok(it) = ob.downcast::<PyIterator>() {
+            if let Ok(indices) = it
+                .iter()?
+                .map(|i| i.and_then(PyAny::extract::<usize>))
+                .collect::<PyResult<Vec<usize>>>()
+            {
+                return Ok(FrameSelection(selection::FrameSelection::FrameList(
+                    indices,
+                )));
+            }
+        }
+
+        Err(PyTypeError::new_err("Cannot select frames with this type"))
+    }
+}
+
+impl FromPyObject<'_> for AtomSelection {
+    fn extract(ob: &PyAny) -> PyResult<Self> {
+        if let Ok(until) = ob.extract::<u32>() {
+            return Ok(AtomSelection(selection::AtomSelection::Until(until)));
+        }
+
+        if let Ok(list) = ob.downcast::<PyList>() {
+            if let Ok(bools) = list
+                .iter()
+                .map(PyAny::extract::<bool>)
+                .collect::<PyResult<Vec<bool>>>()
+            {
+                return Ok(AtomSelection(selection::AtomSelection::Mask(bools)));
+            }
+            if let Ok(indices) = list
+                .iter()
+                .map(PyAny::extract::<u32>)
+                .collect::<PyResult<Vec<u32>>>()
+            {
+                return Ok(AtomSelection(selection::AtomSelection::from_index_list(
+                    &indices,
+                )));
+            }
+        }
+
+        Err(PyTypeError::new_err("Cannot select atoms with this type"))
+    }
+}
+
 #[pyclass]
 struct XTCReader {
     inner: molly::XTCReader<std::fs::File>,
@@ -259,58 +315,4 @@ fn _molly(_py: Python<'_>, m: &PyModule) -> PyResult<()> {
     m.add_class::<XTCReader>()?;
 
     Ok(())
-}
-
-impl FromPyObject<'_> for FrameSelection {
-    fn extract(ob: &PyAny) -> PyResult<Self> {
-        if let Ok(selection) = ob.downcast::<PySlice>() {
-            // TODO: This getattr business seems silly, but maybe it's necessary?
-            let start = selection.getattr("start")?.extract().ok();
-            let end = selection.getattr("stop")?.extract().ok();
-            let step = selection.getattr("step")?.extract::<NonZeroU64>().ok();
-            let range = selection::Range::new(start, end, step);
-            return Ok(FrameSelection(selection::FrameSelection::Range(range)));
-        }
-
-        if let Ok(it) = ob.downcast::<PyIterator>() {
-            if let Ok(indices) = it
-                .iter()?
-                .map(|i| i.and_then(PyAny::extract::<usize>))
-                .collect::<PyResult<Vec<usize>>>()
-            {
-                return Ok(FrameSelection(selection::FrameSelection::FrameList(
-                    indices,
-                )));
-            }
-        }
-
-        Err(PyTypeError::new_err("Cannot select frames with this type"))
-    }
-}
-
-impl FromPyObject<'_> for AtomSelection {
-    fn extract(ob: &PyAny) -> PyResult<Self> {
-        if let Ok(until) = ob.extract::<u32>() {
-            return Ok(AtomSelection(selection::AtomSelection::Until(until)));
-        }
-
-        if let Ok(list) = ob.downcast::<PyList>() {
-            if let Ok(bools) = list
-                .iter()
-                .map(PyAny::extract::<bool>)
-                .collect::<PyResult<Vec<bool>>>()
-            {
-                return Ok(AtomSelection(selection::AtomSelection::Mask(bools)));
-            }
-            if let Ok(indices) = list
-                .iter()
-                .map(PyAny::extract::<u32>)
-                .collect::<PyResult<Vec<u32>>>()
-            {
-                return Ok(AtomSelection(selection::AtomSelection::from_index_list(&indices)));
-            }
-        }
-
-        Err(PyTypeError::new_err("Cannot select atoms with this type"))
-    }
 }
