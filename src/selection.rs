@@ -96,6 +96,20 @@ impl FrameSelection {
             }
         }
     }
+
+    /// If available, return the index of the frame up to which the frames should be read.
+    ///
+    /// This is an _exclusive_ value. If some index is returned, the index itself is not included
+    /// in the [`FrameSelection`], but the frame before it is.
+    pub fn until(&self) -> Option<usize> {
+        match self {
+            FrameSelection::All => None,
+            FrameSelection::Range(range) => range.last().map(|last| last + 1),
+            FrameSelection::FrameList(list) => {
+                Some(list.iter().max().copied().unwrap_or_default() + 1)
+            }
+        }
+    }
 }
 
 /// A selection of [`Frame`](super::Frame)s to be read from an [`XTCReader`](super::XTCReader).
@@ -144,7 +158,8 @@ impl Range {
         sel
     }
 
-    fn is_included(&self, idx: u64) -> Option<bool> {
+    /// If known, return whether some index is included in this range.
+    pub fn is_included(&self, idx: u64) -> Option<bool> {
         if let Some(end) = self.end {
             // Determine whether `idx` is already beyond the defined range.
             if end <= idx {
@@ -154,6 +169,19 @@ impl Range {
         let in_range = self.start <= idx;
         let in_step = self.step.get() == 1 || (idx + self.start) % self.step == 0;
         Some(in_range && in_step)
+    }
+
+    /// Return the last index in this [`Range`].
+    ///
+    /// Note that this is not always equal to a `Range`'s `end` field. In some cases, the `step` of
+    /// a `Range` may not neatly visit the index right before the `end`. This function will return
+    /// the last index before the `end`, taking the value of `step` into account.
+    pub fn last(&self) -> Option<usize> {
+        self.end.map(|end| {
+            let length = end - self.start;
+            let remainder = length % self.step;
+            (end - remainder) as usize
+        })
     }
 }
 
@@ -225,6 +253,30 @@ mod tests {
                 );
                 assert_eq!(all.is_included(idx), Some(true));
             }
+        }
+
+        #[test]
+        fn until() {
+            let n = 100;
+            let step = NonZeroU64::new(17).unwrap();
+
+            let list = FrameSelection::FrameList((0..n).collect());
+            let until = FrameSelection::Range(Range::new(None, Some(n as u64), None));
+            let from_n = FrameSelection::Range(Range::new(Some(n as u64), None, None));
+            let until_stepped = FrameSelection::Range(Range::new(None, Some(n as u64), Some(step)));
+            let from_n_stepped =
+                FrameSelection::Range(Range::new(Some(n as u64), None, Some(step)));
+            let from_until_stepped =
+                FrameSelection::Range(Range::new(Some(n as u64 / 3), Some(n as u64), Some(step)));
+            let all = FrameSelection::All;
+
+            assert_eq!(list.until(), Some(n));
+            assert_eq!(until.until(), Some(n + 1));
+            assert!(from_n.until().is_none());
+            assert_eq!(until_stepped.until(), Some(86));
+            assert!(from_n_stepped.until().is_none());
+            assert_eq!(from_until_stepped.until(), Some(85));
+            assert!(all.until().is_none());
         }
     }
 
