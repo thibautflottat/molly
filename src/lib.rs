@@ -181,7 +181,7 @@ impl<R: io::Read> XTCReader<R> {
                 scratch,
                 atom_selection,
             )?;
-            scratch.truncate(0); // FIXME: This is not actually necessary I think.
+            scratch.truncate(0);
         }
 
         self.step += 1;
