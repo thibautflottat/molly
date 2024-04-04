@@ -5,7 +5,7 @@ use std::{cell::Cell, path::Path};
 
 use glam::{Mat3, Vec3};
 
-use crate::reader::{read_boxvec, read_compressed_positions, read_f32, read_f32s, read_i32};
+use crate::reader::{read_boxvec, read_compressed_positions_buffered, read_f32, read_f32s, read_i32};
 use crate::selection::{AtomSelection, FrameSelection};
 
 pub mod reader;
@@ -174,7 +174,7 @@ impl<R: io::Read> XTCReader<R> {
 
             frame.positions.resize(natoms * 3, 0.0);
             frame.precision = read_f32(file)?;
-            read_compressed_positions(
+            read_compressed_positions_buffered(
                 file,
                 &mut frame.positions,
                 frame.precision,

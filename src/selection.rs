@@ -63,6 +63,22 @@ impl AtomSelection {
             }
         }
     }
+
+    /// Return the last index in this [`Range`].
+    ///
+    /// Note that this is not always equal to a `Range`'s `end` field. In some cases, the `step` of
+    /// a `Range` may not neatly visit the index right before the `end`. This function will return
+    /// the last index before the `end`, taking the value of `step` into account.
+    pub fn last(&self) -> Option<usize> {
+        match self {
+            AtomSelection::All => None,
+            AtomSelection::Mask(mask) => {match mask.iter().rposition(|&entry| entry){
+                Some(n) => Some(n + 1),
+                None => Some(0),
+            }},
+            AtomSelection::Until(until) => Some(*until as usize),
+        }
+    }
 }
 
 /// A selection of [`Frame`]s.
