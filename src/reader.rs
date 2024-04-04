@@ -193,6 +193,8 @@ struct Buffer<'s, 'r, R: Read> {
 }
 
 impl<'s, 'r, R: Read> Buffer<'s, 'r, R> {
+    const MIN_BUFFERED_SIZE: usize = 0x500000;
+
     /// Create a new [`Buffer`] reader.
     ///
     /// # Note
@@ -211,11 +213,19 @@ impl<'s, 'r, R: Read> Buffer<'s, 'r, R> {
         // Fill the scratch buffer with a cautionary value.
         scratch.resize(count + padding, 0xff); // FIXME: Is MaybeUninit a good idea here?
 
-        Ok(Self {
+        let mut buffer = Self {
             scratch,
             idx: 0,
             reader,
-        })
+        };
+
+        // In case the bytecount is rather low, it is probably most efficient to just read it all
+        // right now.
+        if count <= Self::MIN_BUFFERED_SIZE {
+            buffer.read_to_include(count.saturating_sub(1))?;
+        }
+
+        Ok(buffer)
     }
 
     /// Returns the size of this [`Buffer`].
