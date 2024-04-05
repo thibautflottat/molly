@@ -1,11 +1,14 @@
 #![feature(array_chunks, iter_array_chunks, array_try_map)]
 
-use std::io::{self, SeekFrom};
+use std::io::{self, Read, Seek, SeekFrom};
 use std::{cell::Cell, path::Path};
 
 use glam::{Mat3, Vec3};
 
-use crate::reader::{read_boxvec, read_compressed_positions_buffered, read_f32, read_f32s, read_i32};
+use crate::reader::{
+    read_boxvec, read_compressed_positions, read_compressed_positions_buffered, read_f32,
+    read_f32s, read_i32,
+};
 use crate::selection::{AtomSelection, FrameSelection};
 
 pub mod reader;
@@ -48,7 +51,7 @@ impl XTCReader<std::fs::File> {
     }
 }
 
-impl<R: io::Read> XTCReader<R> {
+impl<R: Read> XTCReader<R> {
     pub const MAGIC: i32 = 1995;
 
     pub fn new(reader: R) -> Self {
@@ -174,7 +177,7 @@ impl<R: io::Read> XTCReader<R> {
 
             frame.positions.resize(natoms * 3, 0.0);
             frame.precision = read_f32(file)?;
-            read_compressed_positions_buffered(
+            read_compressed_positions(
                 file,
                 &mut frame.positions,
                 frame.precision,
@@ -194,7 +197,7 @@ impl<R: io::Read> XTCReader<R> {
     }
 }
 
-impl<R: io::Read + io::Seek> XTCReader<R> {
+impl<R: Read + Seek> XTCReader<R> {
     /// Reset the reader to its initial position.
     ///
     /// Go back to the first frame.
@@ -288,7 +291,7 @@ impl<R: io::Read + io::Seek> XTCReader<R> {
         atom_selection: &AtomSelection,
     ) -> io::Result<()> {
         self.file.seek(SeekFrom::Start(offset))?;
-        self.read_frame_with_selection(frame, atom_selection)
+        self.read_frame_with_selection_buffered(frame, atom_selection)
     }
 
     /// Append [`Frame`]s to the `frames` buffer according to a [`Selection`].
@@ -317,5 +320,114 @@ impl<R: io::Read + io::Seek> XTCReader<R> {
         }
 
         Ok(n)
+    }
+
+    /// Reads and returns a [`Frame`] according to the [`AtomSelection`], and advances one step.
+    pub fn read_frame_with_selection_buffered(
+        &mut self,
+        frame: &mut Frame,
+        atom_selection: &AtomSelection,
+    ) -> io::Result<()> {
+        // Take the thread-local SCRATCH and use that while decoding the values.
+        let mut scratch = SCRATCH.take();
+        self.read_frame_with_scratch_buffered(frame, &mut scratch, atom_selection)
+    }
+
+    /// Reads and returns a [`Frame`] and advances one step, internally reading the compressed data
+    /// into `scratch`.
+    ///
+    /// # Note
+    ///
+    /// This function performs the work of [`XTCReader::read_frame`], but leaves all allocations to
+    /// the caller.
+    ///
+    /// The contents of `scratch` should not be depended upon! It just serves as a scratch buffer
+    /// for the inner workings of decoding.
+    ///
+    /// In most cases, [`XTCReader::read_frame`] is more than sufficient. This function only serves
+    /// to make specific optimization possible.
+    pub fn read_frame_with_scratch_buffered(
+        &mut self,
+        frame: &mut Frame,
+        scratch: &mut Vec<u8>,
+        atom_selection: &AtomSelection,
+    ) -> io::Result<()> {
+        let file = &mut self.file;
+
+        // Start of by reading the header.
+        let magic = read_i32(file)?;
+        assert_eq!(
+            magic,
+            Self::MAGIC,
+            "found invalid magic number '{magic}' ({magic:#0x})"
+        );
+        let natoms: usize = read_i32(file)?
+            .try_into()
+            .map_err(|err| io::Error::other(format!("could not read natoms: {err}")))?;
+        let step: u32 = read_i32(file)?
+            .try_into()
+            .map_err(|err| io::Error::other(format!("could not read step: {err}")))?;
+        let time = read_f32(file)?;
+
+        // Read the frame data.
+        let boxvec = read_boxvec(file)?;
+        let natoms_repeated = read_i32(file)?
+            .try_into()
+            .map_err(|err| io::Error::other(format!("could not read second natoms: {err}")))?;
+        assert_eq!(natoms, natoms_repeated);
+
+        // Now, we read the atoms.
+        if natoms <= 9 {
+            // In case the number of atoms is very small, just read their uncompressed positions.
+            frame.positions.resize(natoms * 3, 0.0);
+            let mut buf = [0.0; 9 * 3]; // We have at most 9 atoms, so we handle them on the stack.
+            let buf = &mut buf[..natoms * 3];
+            read_f32s(file, buf)?;
+            frame.positions.truncate(0);
+            frame.positions.extend(
+                buf.array_chunks()
+                    .enumerate()
+                    .filter_map(|(idx, pos): (usize, &[f32; 3])| {
+                        if atom_selection.is_included(idx).unwrap_or_default() {
+                            Some(pos)
+                        } else {
+                            None
+                        }
+                    })
+                    .flatten(),
+            );
+            // TODO: It is unclear to me what to do with the precision in this case. It is
+            // basically invalid, or just irrelevant here, since we don't decode them. They were
+            // never compressed to begin with.
+        } else {
+            // If the atom_selection specifies fewer atoms, we will only allocate up to that point.
+            let natoms_selected = match atom_selection {
+                AtomSelection::All => natoms,
+                AtomSelection::Mask(mask) => {
+                    mask.iter().take(natoms).filter(|&&include| include).count()
+                }
+                AtomSelection::Until(end) => *end as usize,
+            };
+            let natoms = usize::min(natoms, natoms_selected);
+
+            frame.positions.resize(natoms * 3, 0.0);
+            frame.precision = read_f32(file)?;
+            read_compressed_positions_buffered(
+                file,
+                &mut frame.positions,
+                frame.precision,
+                scratch,
+                atom_selection,
+            )?;
+            scratch.truncate(0);
+        }
+
+        self.step += 1;
+
+        frame.step = step;
+        frame.time = time;
+        frame.boxvec = boxvec;
+
+        Ok(())
     }
 }

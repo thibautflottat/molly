@@ -1,4 +1,4 @@
-use std::io::{self, Read};
+use std::io::{self, Read, Seek, SeekFrom};
 
 use crate::{selection::AtomSelection, BoxVec};
 
@@ -175,7 +175,7 @@ pub fn read_compressed_positions<R: Read>(
 }
 
 /// A specialized buffered reader for the compressed datastream.
-struct Buffer<'s, 'r, R: Read> {
+struct Buffer<'s, 'r, R> {
     /// Internal scratch buffer to read into.
     ///
     /// # Warning
@@ -192,7 +192,7 @@ struct Buffer<'s, 'r, R: Read> {
     // that we can just read (500/1000) * 1.1 * nbytes = 0.55 * nbytes and be fine.
 }
 
-impl<'s, 'r, R: Read> Buffer<'s, 'r, R> {
+impl<'s, 'r, R: Read + Seek> Buffer<'s, 'r, R> {
     const MIN_BUFFERED_SIZE: usize = 0x500000;
 
     /// Create a new [`Buffer`] reader.
@@ -238,6 +238,11 @@ impl<'s, 'r, R: Read> Buffer<'s, 'r, R> {
         &self.scratch[..self.idx]
     }
 
+    /// Returns the number of bytes that are yet to be read by this [`Buffer`].
+    fn left(&self) -> usize {
+        self.size() - self.valid().len()
+    }
+
     /// Get a byte at some index.
     ///
     /// # Panics
@@ -279,13 +284,13 @@ impl<'s, 'r, R: Read> Buffer<'s, 'r, R> {
     }
 
     fn finish(&mut self) -> io::Result<()> {
-        // TODO(buffered): Bad weird implementation.
-        self.reader.read_exact(&mut self.scratch[self.idx..])
+        self.reader.seek(SeekFrom::Current(self.left() as i64))?;
+        Ok(())
     }
 }
 
 #[inline]
-pub fn read_compressed_positions_buffered<R: Read>(
+pub fn read_compressed_positions_buffered<R: Read + Seek>(
     file: &mut R,
     positions: &mut [f32],
     precision: f32,
@@ -742,7 +747,7 @@ fn unpack_from_int_into_u64(
     *nums = [x1, y1, z1].map(|v| v as i32);
 }
 
-fn decodebyte_buffered(buf: &mut Buffer<'_, '_, impl Read>, state: &mut DecodeState) -> u8 {
+fn decodebyte_buffered(buf: &mut Buffer<'_, '_, impl Read + Seek>, state: &mut DecodeState) -> u8 {
     let mask = 0xff;
 
     let DecodeState {
@@ -783,7 +788,7 @@ fn decodebyte_buffered(buf: &mut Buffer<'_, '_, impl Read>, state: &mut DecodeSt
 }
 
 fn decodebits_buffered<T: TryFrom<u32>>(
-    buf: &mut Buffer<'_, '_, impl Read>,
+    buf: &mut Buffer<'_, '_, impl Read + Seek>,
     state: &mut DecodeState,
     mut nbits: usize,
 ) -> T {
@@ -828,7 +833,7 @@ fn decodebits_buffered<T: TryFrom<u32>>(
 }
 
 fn decodeints_buffered(
-    buf: &mut Buffer<'_, '_, impl Read>,
+    buf: &mut Buffer<'_, '_, impl Read + Seek>,
     state: &mut DecodeState,
     mut nbits: u32,
     sizes: [u32; 3],
@@ -871,7 +876,7 @@ fn decodeints_buffered(
 }
 
 fn unpack_from_int_into_u32_buffered(
-    buf: &mut Buffer<'_, '_, impl Read>,
+    buf: &mut Buffer<'_, '_, impl Read + Seek>,
     state: &mut DecodeState,
     mut nbits: u32,
     sizes: [u32; 3],
@@ -904,7 +909,7 @@ fn unpack_from_int_into_u32_buffered(
 }
 
 fn unpack_from_int_into_u64_buffered(
-    buf: &mut Buffer<'_, '_, impl Read>,
+    buf: &mut Buffer<'_, '_, impl Read + Seek>,
     state: &mut DecodeState,
     mut nbits: u32,
     sizes: [u32; 3],

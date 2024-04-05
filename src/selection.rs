@@ -72,10 +72,10 @@ impl AtomSelection {
     pub fn last(&self) -> Option<usize> {
         match self {
             AtomSelection::All => None,
-            AtomSelection::Mask(mask) => {match mask.iter().rposition(|&entry| entry){
+            AtomSelection::Mask(mask) => match mask.iter().rposition(|&entry| entry) {
                 Some(n) => Some(n + 1),
                 None => Some(0),
-            }},
+            },
             AtomSelection::Until(until) => Some(*until as usize),
         }
     }
