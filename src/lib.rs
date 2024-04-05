@@ -1,16 +1,16 @@
 #![feature(array_chunks, iter_array_chunks, array_try_map)]
 
+use std::fs::File;
 use std::io::{self, Read, Seek, SeekFrom};
 use std::{cell::Cell, path::Path};
 
 use glam::{Mat3, Vec3};
 
-use crate::reader::{
-    read_boxvec, read_compressed_positions, read_compressed_positions_buffered, read_f32,
-    read_f32s, read_i32,
-};
+use crate::buffer::{Buffer, UnBuffered};
+use crate::reader::{read_boxvec, read_compressed_positions, read_f32, read_f32s, read_i32};
 use crate::selection::{AtomSelection, FrameSelection};
 
+pub mod buffer;
 pub mod reader;
 pub mod selection;
 
@@ -177,7 +177,7 @@ impl<R: Read> XTCReader<R> {
 
             frame.positions.resize(natoms * 3, 0.0);
             frame.precision = read_f32(file)?;
-            read_compressed_positions(
+            read_compressed_positions::<UnBuffered, _>(
                 file,
                 &mut frame.positions,
                 frame.precision,
@@ -197,7 +197,7 @@ impl<R: Read> XTCReader<R> {
     }
 }
 
-impl<R: Read + Seek> XTCReader<R> {
+impl XTCReader<File> {
     /// Reset the reader to its initial position.
     ///
     /// Go back to the first frame.
@@ -412,7 +412,7 @@ impl<R: Read + Seek> XTCReader<R> {
 
             frame.positions.resize(natoms * 3, 0.0);
             frame.precision = read_f32(file)?;
-            read_compressed_positions_buffered(
+            read_compressed_positions::<Buffer, _>(
                 file,
                 &mut frame.positions,
                 frame.precision,

@@ -49,7 +49,7 @@ fn read_compressed_positions(b: &mut Bencher) {
     let precision = 1000.0;
     b.iter(|| {
         let mut data = BufReader::new(position_bytes);
-        reader::read_compressed_positions(
+        reader::read_compressed_positions::<molly::buffer::UnBuffered, _>(
             &mut data,
             &mut positions,
             precision,

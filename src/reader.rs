@@ -1,6 +1,6 @@
-use std::io::{self, Read, Seek, SeekFrom};
+use std::io::{self, Read};
 
-use crate::{selection::AtomSelection, BoxVec};
+use crate::{buffer::Buffered, selection::AtomSelection, BoxVec};
 
 struct DecodeState {
     count: usize,
@@ -23,278 +23,11 @@ pub const MAGICINTS: [i32; 73] = [
 pub const FIRSTIDX: usize = 9; // Note that MAGICINTS[FIRSTIDX-1] == 0.
 
 #[inline]
-pub fn read_compressed_positions<R: Read>(
-    file: &mut R,
+pub fn read_compressed_positions<'s, 'r, B: Buffered<'s, 'r, R>, R: Read>(
+    file: &'r mut R,
     positions: &mut [f32],
     precision: f32,
-    scratch: &mut Vec<u8>,
-    atom_selection: &AtomSelection,
-) -> io::Result<()> {
-    let n = positions.len();
-    assert_eq!(n % 3, 0, "the length of `positions` must be divisible by 3");
-    let natoms = n / 3;
-
-    let invprecision = precision.recip();
-
-    let minint = [0; 3].try_map(|_| read_i32(file))?;
-    let maxint = [0; 3].try_map(|_| read_i32(file))?;
-    let mut smallidx = read_u32(file)? as usize;
-    assert!(smallidx < MAGICINTS.len());
-
-    let mut sizeint = [0u32; 3];
-    let mut bitsizeint = [0u32; 3];
-    let bitsize = calc_sizeint(minint, maxint, &mut sizeint, &mut bitsizeint);
-
-    let tmpidx = smallidx - 1;
-    let tmpidx = if FIRSTIDX > tmpidx { FIRSTIDX } else { tmpidx };
-
-    let mut smaller = MAGICINTS[tmpidx] / 2;
-    let mut smallnum = MAGICINTS[smallidx] / 2;
-    let mut sizesmall = [MAGICINTS[smallidx] as u32; 3];
-
-    let compressed_data = scratch;
-    read_opaque(file, compressed_data)?;
-
-    let mut state = DecodeState {
-        count: 0,
-        lastbits: 0,
-        lastbyte: 0,
-    };
-    let mut run: i32 = 0;
-    let mut prevcoord;
-    let mut write_idx = 0;
-    let mut read_idx = 0;
-    while read_idx < natoms {
-        let mut coord = [0i32; 3];
-        let mut position: &mut [f32; 3] = positions.array_chunks_mut().nth(write_idx).unwrap();
-        if bitsize == 0 {
-            coord[0] = decodebits(compressed_data, &mut state, bitsizeint[0] as usize);
-            coord[1] = decodebits(compressed_data, &mut state, bitsizeint[1] as usize);
-            coord[2] = decodebits(compressed_data, &mut state, bitsizeint[2] as usize);
-        } else {
-            decodeints(compressed_data, &mut state, bitsize, sizeint, &mut coord);
-        }
-
-        coord[0] += minint[0];
-        coord[1] += minint[1];
-        coord[2] += minint[2];
-        prevcoord = coord;
-
-        macro_rules! write_position {
-            ($position:ident, $write_idx:ident, $read_idx:ident, $coord:ident  ) => {
-                match atom_selection.is_included($read_idx) {
-                    None => return Ok(()),
-                    Some(false) => {}
-                    Some(true) => {
-                        *$position = $coord.map(|v| v as f32 * invprecision);
-                        $write_idx += 1;
-                    }
-                };
-            };
-        }
-
-        let flag: bool = decodebits::<u8>(compressed_data, &mut state, 1) > 0;
-        let mut is_smaller = 0;
-        if flag {
-            run = decodebits(compressed_data, &mut state, 5);
-            is_smaller = run % 3;
-            run -= is_smaller;
-            is_smaller -= 1;
-        }
-        if run > 0 {
-            // TODO: Investigate whether this is something we can just remove. I believe it may be.
-            // if write_idx * 3 + run as usize > n {
-            //     eprintln!("may attempt to write a run beyond the positions buffer");
-            //     dbg!(write_idx, run, n, write_idx * 3 + run as usize);
-            // }
-
-            // Let's read the next coordinate.
-            coord.fill(0);
-
-            for k in (0..run).step_by(3) {
-                decodeints(
-                    compressed_data,
-                    &mut state,
-                    smallidx as u32,
-                    sizesmall,
-                    &mut coord,
-                );
-                read_idx += 1;
-                coord[0] += prevcoord[0] - smallnum;
-                coord[1] += prevcoord[1] - smallnum;
-                coord[2] += prevcoord[2] - smallnum;
-                if k == 0 {
-                    // Swap the first and second atom. This is done to achieve better compression
-                    // for water atoms. Waters are stored as OHH, but right now we want to swap the
-                    // atoms such that e.g., water will become HOH again.
-                    std::mem::swap(&mut coord[0], &mut prevcoord[0]);
-                    std::mem::swap(&mut coord[1], &mut prevcoord[1]);
-                    std::mem::swap(&mut coord[2], &mut prevcoord[2]);
-                    write_position!(position, write_idx, read_idx, prevcoord);
-                    position = match positions.array_chunks_mut().nth(write_idx) {
-                        Some(c) => c,
-                        None => break,
-                    };
-                } else {
-                    prevcoord = coord;
-                }
-                write_position!(position, write_idx, read_idx, coord);
-                position = match positions.array_chunks_mut().nth(write_idx) {
-                    Some(c) => c,
-                    None => break,
-                };
-            }
-        } else {
-            write_position!(position, write_idx, read_idx, coord);
-        }
-
-        match is_smaller.cmp(&0) {
-            std::cmp::Ordering::Less => {
-                smallidx -= 1;
-                smallnum = smaller;
-                if smallidx > FIRSTIDX {
-                    smaller = MAGICINTS[smallidx - 1] / 2;
-                } else {
-                    smaller = 0;
-                }
-            }
-            std::cmp::Ordering::Greater => {
-                smallidx += 1;
-                smaller = smallnum;
-                smallnum = MAGICINTS[smallidx] / 2;
-            }
-            std::cmp::Ordering::Equal => {}
-        }
-
-        assert_ne!(MAGICINTS[smallidx], 0, "found an invalid size");
-        sizesmall.fill(MAGICINTS[smallidx] as u32);
-        read_idx += 1;
-    }
-
-    Ok(())
-}
-
-/// A specialized buffered reader for the compressed datastream.
-struct Buffer<'s, 'r, R> {
-    /// Internal scratch buffer to read into.
-    ///
-    /// # Warning
-    ///
-    /// Accessing bytes from this buffer directly is valid iff the index of that byte < `self.idx`.
     scratch: &'s mut Vec<u8>,
-    /// Points to the next unread/unfilled byte in `scratch`.
-    ///
-    /// The starting point for reading bytes from `reader` into `scratch`.
-    idx: usize,
-    reader: &'r mut R,
-    // TODO(buffered): Add some notion of a 'rich' heuristic. For instance, if we know there are
-    // 1000 atoms, and we only want to read up until the 500th atom, we can pretty safely assume
-    // that we can just read (500/1000) * 1.1 * nbytes = 0.55 * nbytes and be fine.
-}
-
-impl<'s, 'r, R: Read + Seek> Buffer<'s, 'r, R> {
-    const MIN_BUFFERED_SIZE: usize = 0x500000;
-
-    /// Create a new [`Buffer`] reader.
-    ///
-    /// # Note
-    ///
-    /// Expects that the first `u32` represents the number of upcoming bytes in the compressed data
-    /// stream. If this function is called on a reader that is not at that spot in its stream, the
-    /// resulting [`Buffer`] is invalid. This is the same requirement [`read_opaque`] has.
-    // We initialize on a Vec<u8> but after preparing this Vec we store the allocation internally
-    // as a mutable byte slice, since we do not need to do any Vec-specific operations on it
-    // afterwards. When this type is dropped, the ownership of `scratch` is returned since the
-    // reference to it dissolves.
-    fn new(scratch: &'s mut Vec<u8>, reader: &'r mut R) -> io::Result<Self> {
-        let count = read_u32(reader)? as usize;
-        let padding = (4 - (count % 4)) % 4; // FIXME: Why, and also, can we do this better?
-
-        // Fill the scratch buffer with a cautionary value.
-        scratch.resize(count + padding, 0xff); // FIXME: Is MaybeUninit a good idea here?
-
-        let mut buffer = Self {
-            scratch,
-            idx: 0,
-            reader,
-        };
-
-        // In case the bytecount is rather low, it is probably most efficient to just read it all
-        // right now.
-        if count <= Self::MIN_BUFFERED_SIZE {
-            buffer.read_to_include(count.saturating_sub(1))?;
-        }
-
-        Ok(buffer)
-    }
-
-    /// Returns the size of this [`Buffer`].
-    fn size(&self) -> usize {
-        self.scratch.len()
-    }
-
-    /// Returns a reference to the valid section of this [`Buffer`].
-    fn valid(&self) -> &[u8] {
-        &self.scratch[..self.idx]
-    }
-
-    /// Returns the number of bytes that are yet to be read by this [`Buffer`].
-    fn left(&self) -> usize {
-        self.size() - self.valid().len()
-    }
-
-    /// Get a byte at some index.
-    ///
-    /// # Panics
-    ///
-    /// If the `index` exceeds the number of bytes this [`Buffer`] can read, this function panics.
-    /// In that case something is seriously wrong anyway.
-    fn fetch(&mut self, index: usize) -> u8 {
-        assert!(
-            index < self.size(),
-            "index ({index}) must be within the defined range of the scratch buffer (..{size})",
-            size = self.size()
-        );
-        match self.valid().get(index) {
-            Some(&b) => b,
-            None => {
-                // FIXME(buffered): For now, let's just fuck this up with a terrible unwrap here.
-                // Gotta change this to be io::Result at some point? If we can muster the perf hit
-                // at least...
-                self.read_to_include(index).unwrap();
-                assert!(
-                    index < self.idx,
-                    "index ({index}) must be within than the defined valid range (..{valid})",
-                    valid = self.idx
-                );
-                self.valid()[index] // Gotta be correct, now.
-            }
-        }
-    }
-
-    /// Read enough bytes such that `index` points to a valid byte.
-    // TODO: Limit the number of bytes that are read in this operation. We don't want to go
-    // overboard!
-    fn read_to_include(&mut self, index: usize) -> io::Result<()> {
-        while self.idx <= index {
-            // TODO(buffered): Consider dealing with n_bytes == 0 indicating eof.
-            self.idx += self.reader.read(&mut self.scratch[self.idx..])?;
-        }
-        Ok(())
-    }
-
-    fn finish(&mut self) -> io::Result<()> {
-        self.reader.seek(SeekFrom::Current(self.left() as i64))?;
-        Ok(())
-    }
-}
-
-#[inline]
-pub fn read_compressed_positions_buffered<R: Read + Seek>(
-    file: &mut R,
-    positions: &mut [f32],
-    precision: f32,
-    scratch: &mut Vec<u8>,
     atom_selection: &AtomSelection,
 ) -> io::Result<()> {
     let n = positions.len();
@@ -319,8 +52,7 @@ pub fn read_compressed_positions_buffered<R: Read + Seek>(
     let mut smallnum = MAGICINTS[smallidx] / 2;
     let mut sizesmall = [MAGICINTS[smallidx] as u32; 3];
 
-    // Set up our buffered reader.
-    let mut buffer = Buffer::new(scratch, file)?;
+    let mut buffer = B::new(scratch, file)?;
 
     let mut state = DecodeState {
         count: 0,
@@ -335,11 +67,11 @@ pub fn read_compressed_positions_buffered<R: Read + Seek>(
         let mut coord = [0i32; 3];
         let mut position: &mut [f32; 3] = positions.array_chunks_mut().nth(write_idx).unwrap();
         if bitsize == 0 {
-            coord[0] = decodebits_buffered(&mut buffer, &mut state, bitsizeint[0] as usize);
-            coord[1] = decodebits_buffered(&mut buffer, &mut state, bitsizeint[1] as usize);
-            coord[2] = decodebits_buffered(&mut buffer, &mut state, bitsizeint[2] as usize);
+            coord[0] = decodebits_buffered::<_, R>(&mut buffer, &mut state, bitsizeint[0] as usize);
+            coord[1] = decodebits_buffered::<_, R>(&mut buffer, &mut state, bitsizeint[1] as usize);
+            coord[2] = decodebits_buffered::<_, R>(&mut buffer, &mut state, bitsizeint[2] as usize);
         } else {
-            decodeints_buffered(&mut buffer, &mut state, bitsize, sizeint, &mut coord);
+            decodeints_buffered::<R>(&mut buffer, &mut state, bitsize, sizeint, &mut coord);
         }
 
         coord[0] += minint[0];
@@ -360,10 +92,10 @@ pub fn read_compressed_positions_buffered<R: Read + Seek>(
             };
         }
 
-        let flag: bool = decodebits_buffered::<u8>(&mut buffer, &mut state, 1) > 0;
+        let flag: bool = decodebits_buffered::<u8, R>(&mut buffer, &mut state, 1) > 0;
         let mut is_smaller = 0;
         if flag {
-            run = decodebits_buffered(&mut buffer, &mut state, 5);
+            run = decodebits_buffered::<_, R>(&mut buffer, &mut state, 5);
             is_smaller = run % 3;
             run -= is_smaller;
             is_smaller -= 1;
@@ -379,7 +111,7 @@ pub fn read_compressed_positions_buffered<R: Read + Seek>(
             coord.fill(0);
 
             for k in (0..run).step_by(3) {
-                decodeints_buffered(
+                decodeints_buffered::<R>(
                     &mut buffer,
                     &mut state,
                     smallidx as u32,
@@ -438,8 +170,6 @@ pub fn read_compressed_positions_buffered<R: Read + Seek>(
         read_idx += 1;
     }
 
-    // TODO(buffered): If buffered, either seek or just read until the next header. For now we do
-    // it this crappy way. Perhaps we should Buffer::finish() on drop?
     buffer.finish()
 }
 
@@ -455,7 +185,7 @@ pub(crate) fn read_boxvec<R: Read>(file: &mut R) -> io::Result<BoxVec> {
     Ok(BoxVec::from_cols_array_2d(&cols))
 }
 
-fn read_opaque<R: Read>(file: &mut R, data: &mut Vec<u8>) -> io::Result<()> {
+pub(crate) fn read_opaque<R: Read>(file: &mut R, data: &mut Vec<u8>) -> io::Result<()> {
     let count = read_u32(file)? as usize;
     let padding = (4 - (count % 4)) % 4; // FIXME: Why, and also, can we do this better?
     data.resize(count + padding, 0);
@@ -482,7 +212,7 @@ pub(crate) fn read_i32<R: Read>(file: &mut R) -> io::Result<i32> {
     Ok(i32::from_be_bytes(buf))
 }
 
-fn read_u32<R: Read>(file: &mut R) -> io::Result<u32> {
+pub(crate) fn read_u32<R: Read>(file: &mut R) -> io::Result<u32> {
     let mut buf: [u8; 4] = Default::default();
     file.read_exact(&mut buf)?;
     Ok(u32::from_be_bytes(buf))
@@ -747,7 +477,10 @@ fn unpack_from_int_into_u64(
     *nums = [x1, y1, z1].map(|v| v as i32);
 }
 
-fn decodebyte_buffered(buf: &mut Buffer<'_, '_, impl Read + Seek>, state: &mut DecodeState) -> u8 {
+fn decodebyte_buffered<'s, 'r, R>(
+    buf: &mut impl Buffered<'s, 'r, R>,
+    state: &mut DecodeState,
+) -> u8 {
     let mask = 0xff;
 
     let DecodeState {
@@ -787,8 +520,8 @@ fn decodebyte_buffered(buf: &mut Buffer<'_, '_, impl Read + Seek>, state: &mut D
     num as u8
 }
 
-fn decodebits_buffered<T: TryFrom<u32>>(
-    buf: &mut Buffer<'_, '_, impl Read + Seek>,
+fn decodebits_buffered<'s, 'r, T: TryFrom<u32>, R: Read>(
+    buf: &mut impl Buffered<'s, 'r, R>,
     state: &mut DecodeState,
     mut nbits: usize,
 ) -> T {
@@ -832,8 +565,8 @@ fn decodebits_buffered<T: TryFrom<u32>>(
     }
 }
 
-fn decodeints_buffered(
-    buf: &mut Buffer<'_, '_, impl Read + Seek>,
+fn decodeints_buffered<'s, 'r, R: Read>(
+    buf: &mut impl Buffered<'s, 'r, R>,
     state: &mut DecodeState,
     mut nbits: u32,
     sizes: [u32; 3],
@@ -875,8 +608,8 @@ fn decodeints_buffered(
     nums[0] = i32::from_le_bytes(bytes[..4].try_into().unwrap());
 }
 
-fn unpack_from_int_into_u32_buffered(
-    buf: &mut Buffer<'_, '_, impl Read + Seek>,
+fn unpack_from_int_into_u32_buffered<'s, 'r, R: Read>(
+    buf: &mut impl Buffered<'s, 'r, R>,
     state: &mut DecodeState,
     mut nbits: u32,
     sizes: [u32; 3],
@@ -908,8 +641,8 @@ fn unpack_from_int_into_u32_buffered(
     *nums = [x1, y1, z1].map(|v| v as i32);
 }
 
-fn unpack_from_int_into_u64_buffered(
-    buf: &mut Buffer<'_, '_, impl Read + Seek>,
+fn unpack_from_int_into_u64_buffered<'s, 'r, R: Read>(
+    buf: &mut impl Buffered<'s, 'r, R>,
     state: &mut DecodeState,
     mut nbits: u32,
     sizes: [u32; 3],
@@ -945,6 +678,8 @@ fn unpack_from_int_into_u64_buffered(
 mod tests {
     use std::io::BufReader;
 
+    use crate::buffer::UnBuffered;
+
     use super::*;
 
     #[test]
@@ -959,7 +694,7 @@ mod tests {
         let mut scratch = Vec::new();
         let precision = 1000.0;
         let mut data = BufReader::new(position_bytes);
-        read_compressed_positions(
+        read_compressed_positions::<UnBuffered, _>(
             &mut data,
             &mut positions,
             precision,
