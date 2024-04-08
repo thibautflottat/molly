@@ -67,11 +67,11 @@ pub fn read_compressed_positions<'s, 'r, B: Buffered<'s, 'r, R>, R: Read>(
         let mut coord = [0i32; 3];
         let mut position: &mut [f32; 3] = positions.array_chunks_mut().nth(write_idx).unwrap();
         if bitsize == 0 {
-            coord[0] = decodebits_buffered::<_, R>(&mut buffer, &mut state, bitsizeint[0] as usize);
-            coord[1] = decodebits_buffered::<_, R>(&mut buffer, &mut state, bitsizeint[1] as usize);
-            coord[2] = decodebits_buffered::<_, R>(&mut buffer, &mut state, bitsizeint[2] as usize);
+            coord[0] = decodebits::<_, R>(&mut buffer, &mut state, bitsizeint[0] as usize);
+            coord[1] = decodebits::<_, R>(&mut buffer, &mut state, bitsizeint[1] as usize);
+            coord[2] = decodebits::<_, R>(&mut buffer, &mut state, bitsizeint[2] as usize);
         } else {
-            decodeints_buffered::<R>(&mut buffer, &mut state, bitsize, sizeint, &mut coord);
+            decodeints::<R>(&mut buffer, &mut state, bitsize, sizeint, &mut coord);
         }
 
         coord[0] += minint[0];
@@ -92,10 +92,10 @@ pub fn read_compressed_positions<'s, 'r, B: Buffered<'s, 'r, R>, R: Read>(
             };
         }
 
-        let flag: bool = decodebits_buffered::<u8, R>(&mut buffer, &mut state, 1) > 0;
+        let flag: bool = decodebits::<u8, R>(&mut buffer, &mut state, 1) > 0;
         let mut is_smaller = 0;
         if flag {
-            run = decodebits_buffered::<_, R>(&mut buffer, &mut state, 5);
+            run = decodebits::<_, R>(&mut buffer, &mut state, 5);
             is_smaller = run % 3;
             run -= is_smaller;
             is_smaller -= 1;
@@ -111,7 +111,7 @@ pub fn read_compressed_positions<'s, 'r, B: Buffered<'s, 'r, R>, R: Read>(
             coord.fill(0);
 
             for k in (0..run).step_by(3) {
-                decodeints_buffered::<R>(
+                decodeints::<R>(
                     &mut buffer,
                     &mut state,
                     smallidx as u32,
@@ -287,200 +287,7 @@ fn sizeofints(sizes: [u32; 3]) -> u32 {
     nbytes as u32 * 8 + nbits // FIXME: Check whether it is okay for nbytes to have the type of usize not u32
 }
 
-fn decodebyte(buf: &[u8], state: &mut DecodeState) -> u8 {
-    let mask = 0xff;
-
-    let DecodeState {
-        mut count,
-        mut lastbits,
-        lastbyte,
-    } = *state;
-    let mut lastbyte = lastbyte as u32;
-
-    let mut num = 0;
-    let mut nbits = 8;
-    while nbits >= 8 {
-        lastbyte = (lastbyte << 8) | buf[count] as u32;
-        count += 1;
-        num |= (lastbyte >> lastbits) << (nbits - 8);
-        nbits -= 8;
-    }
-
-    if nbits > 0 {
-        if lastbits < nbits {
-            lastbits += 8;
-            lastbyte = (lastbyte << 8) | buf[count] as u32;
-            count += 1;
-        }
-        lastbits -= nbits;
-        num |= (lastbyte >> lastbits) & mask;
-    }
-
-    num &= mask;
-    *state = DecodeState {
-        count,
-        lastbits,
-        lastbyte: (lastbyte & 0xff) as u8, // We don't care about anything but the last byte.
-    };
-
-    debug_assert_eq!(num & 0xff, num);
-    num as u8
-}
-
-fn decodebits<T: TryFrom<u32>>(buf: &[u8], state: &mut DecodeState, mut nbits: usize) -> T {
-    let mask = (1 << nbits) - 1; // A string of ones that is nbits long.
-
-    let DecodeState {
-        mut count,
-        mut lastbits,
-        lastbyte,
-    } = *state;
-    let mut lastbyte = lastbyte as u32;
-
-    let mut num = 0;
-    while nbits >= 8 {
-        lastbyte = (lastbyte << 8) | buf[count] as u32;
-        count += 1;
-        num |= (lastbyte >> lastbits) << (nbits - 8);
-        nbits -= 8;
-    }
-
-    if nbits > 0 {
-        if lastbits < nbits {
-            lastbits += 8;
-            lastbyte = (lastbyte << 8) | buf[count] as u32;
-            count += 1;
-        }
-        lastbits -= nbits;
-        num |= (lastbyte >> lastbits) & mask;
-    }
-
-    num &= mask;
-    *state = DecodeState {
-        count,
-        lastbits,
-        lastbyte: (lastbyte & 0xff) as u8, // We don't care about anything but the last byte.
-    };
-
-    match num.try_into() {
-        Ok(n) => n,
-        Err(_) => unreachable!(), // We just checked for that!
-    }
-}
-
-fn decodeints(
-    buf: &[u8],
-    state: &mut DecodeState,
-    mut nbits: u32,
-    sizes: [u32; 3],
-    nums: &mut [i32; 3],
-) {
-    if nbits <= 32 {
-        unpack_from_int_into_u32(buf, state, nbits, sizes, nums);
-        return;
-    }
-    if nbits <= 64 {
-        unpack_from_int_into_u64(buf, state, nbits, sizes, nums);
-        return;
-    }
-
-    let mut bytes = [0u8; 32];
-    let mut nbytes: usize = 0;
-    while nbits >= 8 {
-        bytes[nbytes] = decodebyte(buf, state);
-        nbytes += 1;
-        nbits -= 8;
-    }
-    if nbits > 0 {
-        bytes[nbytes] = decodebits(buf, state, nbits as usize);
-        nbytes += 1;
-    }
-
-    for i in (1..=2).rev() {
-        let mut num: u32 = 0;
-        for j in 0..nbytes {
-            let k = nbytes - 1 - j;
-            num = (num << 8) | bytes[k] as u32;
-            let p = num / sizes[i];
-            bytes[k] = p as u8;
-            num -= p * sizes[i];
-        }
-        nums[i] = num as i32;
-    }
-
-    nums[0] = i32::from_le_bytes(bytes[..4].try_into().unwrap());
-}
-
-fn unpack_from_int_into_u32(
-    buf: &[u8],
-    state: &mut DecodeState,
-    mut nbits: u32,
-    sizes: [u32; 3],
-    nums: &mut [i32; 3],
-) {
-    type T = u32;
-    let mut v: T = 0;
-    let mut nbytes: usize = 0;
-    while nbits >= 8 {
-        let byte: T = decodebyte(buf, state) as T;
-        v |= byte << (8 * nbytes as u32);
-        nbytes += 1;
-        nbits -= 8;
-    }
-    if nbits > 0 {
-        let byte: T = decodebits(buf, state, nbits as usize);
-        v |= byte << (8 * nbytes as u32);
-    }
-
-    // FIXME: What's up with the whole FastType stuff here?
-    let sz: T = sizes[2];
-    let sy: T = sizes[1];
-    let szy: T = sz * sy;
-    let x1 = v / szy;
-    let q1 = v - x1 * szy;
-    let y1 = q1 / sz;
-    let z1 = q1 - y1 * sz;
-
-    *nums = [x1, y1, z1].map(|v| v as i32);
-}
-
-fn unpack_from_int_into_u64(
-    buf: &[u8],
-    state: &mut DecodeState,
-    mut nbits: u32,
-    sizes: [u32; 3],
-    nums: &mut [i32; 3],
-) {
-    type T = u64;
-    let mut v: T = 0;
-    let mut nbytes: usize = 0;
-    while nbits >= 8 {
-        let byte: T = decodebyte(buf, state) as T;
-        v |= byte << (8 * nbytes as u32);
-        nbytes += 1;
-        nbits -= 8;
-    }
-    if nbits > 0 {
-        let byte: T = decodebits(buf, state, nbits as usize);
-        v |= byte << (8 * nbytes as u32);
-    }
-
-    // FIXME: What's up with the whole FastType stuff here?
-    let sz: T = sizes[2] as u64;
-    let sy: T = sizes[1] as u64;
-    let szy: T = sz * sy;
-    let x1 = v / szy;
-    let q1 = v - x1 * szy;
-    let y1 = q1 / sz;
-    let z1 = q1 - y1 * sz;
-
-    *nums = [x1, y1, z1].map(|v| v as i32);
-}
-
-fn decodebyte_buffered<'s, 'r, R>(
-    buf: &mut impl Buffered<'s, 'r, R>,
-    state: &mut DecodeState,
-) -> u8 {
+fn decodebyte<'s, 'r, R>(buf: &mut impl Buffered<'s, 'r, R>, state: &mut DecodeState) -> u8 {
     let mask = 0xff;
 
     let DecodeState {
@@ -520,7 +327,7 @@ fn decodebyte_buffered<'s, 'r, R>(
     num as u8
 }
 
-fn decodebits_buffered<'s, 'r, T: TryFrom<u32>, R: Read>(
+fn decodebits<'s, 'r, T: TryFrom<u32>, R: Read>(
     buf: &mut impl Buffered<'s, 'r, R>,
     state: &mut DecodeState,
     mut nbits: usize,
@@ -565,7 +372,7 @@ fn decodebits_buffered<'s, 'r, T: TryFrom<u32>, R: Read>(
     }
 }
 
-fn decodeints_buffered<'s, 'r, R: Read>(
+fn decodeints<'s, 'r, R: Read>(
     buf: &mut impl Buffered<'s, 'r, R>,
     state: &mut DecodeState,
     mut nbits: u32,
@@ -573,23 +380,23 @@ fn decodeints_buffered<'s, 'r, R: Read>(
     nums: &mut [i32; 3],
 ) {
     if nbits <= 32 {
-        unpack_from_int_into_u32_buffered(buf, state, nbits, sizes, nums);
+        unpack_from_int_into_u32(buf, state, nbits, sizes, nums);
         return;
     }
     if nbits <= 64 {
-        unpack_from_int_into_u64_buffered(buf, state, nbits, sizes, nums);
+        unpack_from_int_into_u64(buf, state, nbits, sizes, nums);
         return;
     }
 
     let mut bytes = [0u8; 32];
     let mut nbytes: usize = 0;
     while nbits >= 8 {
-        bytes[nbytes] = decodebyte_buffered(buf, state);
+        bytes[nbytes] = decodebyte(buf, state);
         nbytes += 1;
         nbits -= 8;
     }
     if nbits > 0 {
-        bytes[nbytes] = decodebits_buffered(buf, state, nbits as usize);
+        bytes[nbytes] = decodebits(buf, state, nbits as usize);
         nbytes += 1;
     }
 
@@ -608,7 +415,7 @@ fn decodeints_buffered<'s, 'r, R: Read>(
     nums[0] = i32::from_le_bytes(bytes[..4].try_into().unwrap());
 }
 
-fn unpack_from_int_into_u32_buffered<'s, 'r, R: Read>(
+fn unpack_from_int_into_u32<'s, 'r, R: Read>(
     buf: &mut impl Buffered<'s, 'r, R>,
     state: &mut DecodeState,
     mut nbits: u32,
@@ -619,13 +426,13 @@ fn unpack_from_int_into_u32_buffered<'s, 'r, R: Read>(
     let mut v: T = 0;
     let mut nbytes: usize = 0;
     while nbits >= 8 {
-        let byte: T = decodebyte_buffered(buf, state) as T;
+        let byte: T = decodebyte(buf, state) as T;
         v |= byte << (8 * nbytes as u32);
         nbytes += 1;
         nbits -= 8;
     }
     if nbits > 0 {
-        let byte: T = decodebits_buffered(buf, state, nbits as usize);
+        let byte: T = decodebits(buf, state, nbits as usize);
         v |= byte << (8 * nbytes as u32);
     }
 
@@ -641,7 +448,7 @@ fn unpack_from_int_into_u32_buffered<'s, 'r, R: Read>(
     *nums = [x1, y1, z1].map(|v| v as i32);
 }
 
-fn unpack_from_int_into_u64_buffered<'s, 'r, R: Read>(
+fn unpack_from_int_into_u64<'s, 'r, R: Read>(
     buf: &mut impl Buffered<'s, 'r, R>,
     state: &mut DecodeState,
     mut nbits: u32,
@@ -652,13 +459,13 @@ fn unpack_from_int_into_u64_buffered<'s, 'r, R: Read>(
     let mut v: T = 0;
     let mut nbytes: usize = 0;
     while nbits >= 8 {
-        let byte: T = decodebyte_buffered(buf, state) as T;
+        let byte: T = decodebyte(buf, state) as T;
         v |= byte << (8 * nbytes as u32);
         nbytes += 1;
         nbits -= 8;
     }
     if nbits > 0 {
-        let byte: T = decodebits_buffered(buf, state, nbits as usize);
+        let byte: T = decodebits(buf, state, nbits as usize);
         v |= byte << (8 * nbytes as u32);
     }
 
