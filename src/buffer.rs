@@ -1,4 +1,5 @@
-use std::{fs::File, io::{self, Read, Seek, SeekFrom}};
+use std::fs::File;
+use std::io::{self, Read, Seek, SeekFrom};
 
 use crate::reader::{read_opaque, read_u32};
 
@@ -6,6 +7,7 @@ pub type UnBuffered<'s> = &'s [u8];
 
 pub trait Buffered<'s, 'r, R>: Sized {
     const MIN_BUFFERED_SIZE: usize = 0x500000;
+    const BLOCK_SIZE: usize = 0x20000;
 
     // TODO(buffered): Consider giving the n_bytes from the outside?
     /// Create a new [`Buffer`] reader.
@@ -75,7 +77,11 @@ impl Buffer<'_, '_> {
     fn read_to_include(&mut self, index: usize) -> io::Result<()> {
         while self.idx <= index {
             // TODO(buffered): Consider dealing with n_bytes == 0 indicating eof.
-            self.idx += self.reader.read(&mut self.scratch[self.idx..])?;
+            // Read a bunch of bytes limited by the size of the scratch buffer and BLOCK_SIZE.
+            // We would rather do a couple more smaller reads (BLOCK_SIZE) than one big one that
+            // goes way beyond what we need according to some AtomSelection.
+            let until = usize::min(self.size(), index + Self::BLOCK_SIZE);
+            self.idx += self.reader.read(&mut self.scratch[self.idx..until])?;
         }
         Ok(())
     }
@@ -95,9 +101,9 @@ impl<'s, 'r> Buffered<'s, 'r, File> for Buffer<'s, 'r> {
             reader,
         };
 
-        // In case the bytecount is rather low, it is probably most efficient to just read it all
-        // right now.
-        if count <= Self::MIN_BUFFERED_SIZE {
+        // In case the buffer size is rather low, it is probably most efficient to just read it all
+        // at once, right here.
+        if buffer.scratch.len() <= Self::MIN_BUFFERED_SIZE {
             buffer.read_to_include(count.saturating_sub(1))?;
         }
 
