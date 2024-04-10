@@ -31,8 +31,11 @@ pub trait Buffered<'s, 'r, R>: Sized {
     /// In that case something is seriously wrong anyway.
     fn fetch(&mut self, index: usize) -> u8;
 
-    // TODO(buffered): Get rid of this.
-    fn finish(&mut self) -> io::Result<()>;
+    /// Finish will eat your reader, leaving it at the start of the next frame, and then drops it.
+    ///
+    /// For an implementation that relies on [`std::io::Seek`] ([`Buffer`] in our case), this
+    /// really matters.
+    fn finish(self) -> io::Result<()>;
 }
 
 /// A specialized buffered reader for the compressed datastream.
@@ -155,7 +158,7 @@ impl<'s, 'r, R: Read> Buffered<'s, 'r, R> for &'s [u8] {
         self[index]
     }
 
-    fn finish(&mut self) -> io::Result<()> {
+    fn finish(self) -> io::Result<()> {
         Ok(()) // Nothing to do, since we already read everything.
     }
 }
