@@ -136,14 +136,15 @@ impl<'s, 'r> Buffered<'s, 'r, File> for Buffer<'s, 'r> {
         }
     }
 
-    fn finish(&mut self) -> io::Result<()> {
+    fn finish(self) -> io::Result<()> {
         self.reader.seek(SeekFrom::Current(self.left() as i64))?;
+        drop(self);
         Ok(())
     }
 }
 
 /// A fallback non-buffered implementation in case [`std::io::Seek`] is not available for `R`.
-impl<'s, 'r, R: Read> Buffered<'s, 'r, R> for &'s [u8] {
+impl<'s, 'r, R: Read> Buffered<'s, 'r, R> for UnBuffered<'s> {
     fn new(scratch: &'s mut Vec<u8>, reader: &'r mut R) -> io::Result<Self> {
         read_opaque(reader, scratch)?;
         Ok(scratch)
