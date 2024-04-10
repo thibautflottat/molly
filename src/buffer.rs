@@ -45,7 +45,7 @@ pub(crate) struct Buffer<'s, 'r> {
     /// # Warning
     ///
     /// Accessing bytes from this buffer directly is valid iff the index of that byte < `self.idx`.
-    scratch: &'s mut Vec<u8>,
+    scratch: &'s mut [u8],
     /// Points to the next unread/unfilled byte in `scratch`.
     ///
     /// The starting point for reading bytes from `reader` into `scratch`.
