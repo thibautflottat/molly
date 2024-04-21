@@ -1,29 +1,75 @@
 # _molly_&mdash;read `xtc` files, fast
 
 > **WARNING:** This library is unfinished and has not been tested to a
-> sufficient degree. 
-> 
+> sufficient degree.
+>
 > Please don't use it for any critical analyses. This repository cannot be
 > considered as public, yet. Please inquire whether its address or contents may
-> be shared on a case-per-case basis untill otherwise noted.
+> be shared on a case-per-case basis until otherwise noted.
 >
 > This library is currently purposefully without a license to prevent
 > dependence on its contents.
 
+> **NOTE:** For those who want to try to use this library, please point to the
+> [`alpha` branch][alpha]. The `alpha` branch will be the more stable testing
+> ground while still allowing some more bleeding-edge work to happen on `main`.
+> Pinky-promise that alpha has no breaking changes in the short term.
+>
+> For any questions, feel free to get in [contact][contact] with me.
+
 A reader for the Gromacs [xtc file format][xtc] implemented in pure Rust.
 
-_molly_ is both a Rust library and exposes a set of bindings that allow access
-to its functions from Python.
+_molly_ tries to decompress or even read the minimal number of bytes. To this
+end, the library features extensive selection methods for **frames** within a
+trajectory and **atoms** within each frame. This selection allows for some
+exciting optimizations. Only the necessary positions are decompressed.
+Similarly, there are circumstances under which only a limited number of
+compressed bytes are read in the first place.
+This is particularly powerful in applications where a subset of positions at
+the top-end of the frame is selected in a large trajectory. Such buffered
+reading can be very beneficial when disk read speed is particularly poor, such
+as over networked file storage.
 
-## installation
+For convenient use in existing analysis tools, _molly_ exposes a set of
+bindings that allow access to its functions from Python.
+
+## Installation
 
 ### As a library
 
-To use _molly_ in a Rust project, add this repository to the dependencies in your `Cargo.toml`.
+To use _molly_ in a Rust project, add this repository to the dependencies in
+your `Cargo.toml`.
 
 ```toml
 [dependencies]
 molly = { git = "https://git.sr.ht/~ma3ke/molly" }
+```
+
+### As a Python module
+
+`cargo` (which provides the Rust compiler) is required for building the Python
+bindings. (The `stable` toolchain is sufficient.)
+
+To install the module, run the following command. It will automatically clone
+the repository, switch to the `alpha` branch, and install the Python library
+from the correct directory.
+
+```console
+pip3 install 'git+https://git.sr.ht/~ma3ke/molly@alpha#egg=molly&subdirectory=bindings/python'
+```
+
+Alternatively, clone the repository, go into the bindings directory, and
+install it from there using `pip`.
+
+```console
+git clone https://git.sr.ht/~ma3ke/molly
+cd molly/bindings/python
+
+# Perhaps you want to use/create a virtual environment first.
+python3 -m venv venv
+source venv/bin/activate
+
+pip3 install .
 ```
 
 ### The examples
@@ -44,39 +90,47 @@ cargo build --release --examples
 target/release/examples/<name> [options]
 ```
 
-Or directly run them them using 
+Or directly run them using
 
 ```console
 cargo run --release --example <name>
 ```
 
-### As a Python module
+## Tests
 
-A Rust compiler is required for building the Python bindings. 
-
-
-To install the module, clone the repository, go into the bindings directory,
-and install it using `pip`.
+The library includes a number of unit tests of internal mechanisms and
+integration tests (including comparisons against the values produced by other
+libraries). Note that it is desirable to run the tests with the `--release`
+flag, since the debug builds run rather slow.
 
 ```console
-git clone https://git.sr.ht/~ma3ke/molly
-cd molly/bindings/python
-
-# Perhaps you want to use/create a virtual environment first.
-python3 -m venv venv
-source venv/bin/activate
-
-pip3 install .
+cargo test --release
 ```
 
-## benchmarks
+## Performance and benchmarks
 
-There's some benchmark scripts lying around here. May place them into a neat table at a later point. For now, many things are still changing, so there is no sense in making any hard conclusions about the performance.
+Go ahead and run the provided benchmarks if you're interested!
 
-Nevertheless, it looks like _molly_ is around 2&times; faster than
-[_xdrf_][xdrf] (the widely-used Gromacs implementation), and around
-4&times; faster than the [_chemfiles_ implementation][chemfiles].
+```console
+cargo bench
+```
 
+Additionally, there is a couple of benchmark scripts lying around the repo. I
+may place them into a neat table at a later point. For now, some things are
+still subject to change. Though we can see the broad shape of the performance
+story for _molly_, this is not yet the time for hard promises.
+
+It looks like _molly_ is around 2&times; faster than [_xdrf_][xdrf]
+(the widely-used Gromacs implementation), and around 4&times; faster than the
+[_chemfiles_ implementation][chemfiles].
+
+For the buffered implementations this gap is slightly less pronounced. When
+disk I/O is factored out, buffered reading is around 20% slower than unbuffered
+reading. But over very large trajectories where only a subset of positions from
+the top of each frame is selected, the advantage is considerable.
+
+[alpha]: https://git.sr.ht/~ma3ke/molly/tree/alpha
+[contact]: https://dwangschematiek.nl/where
 [xtc]: https://manual.gromacs.org/current/reference-manual/file-formats.html#xtc
 [xdrf]: https://gitlab.com/gromacs/gromacs/-/blob/d8d6543db04563cb15f71c90ffb5ed2fda092bce/src/gromacs/fileio/xdrf.h
 [chemfiles]: https://chemfiles.org/
