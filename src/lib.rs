@@ -284,14 +284,17 @@ impl XTCReader<File> {
     }
 
     /// Seeks to offset, then reads and returns a [`Frame`] and advances one step.
-    pub fn read_frame_at_offset(
+    pub fn read_frame_at_offset<const BUFFERED: bool>(
         &mut self,
         frame: &mut Frame,
         offset: u64,
         atom_selection: &AtomSelection,
     ) -> io::Result<()> {
         self.file.seek(SeekFrom::Start(offset))?;
-        self.read_frame_with_selection_buffered(frame, atom_selection)
+        match BUFFERED {
+            true => self.read_frame_with_selection_buffered(frame, atom_selection),
+            false => self.read_frame_with_selection(frame, atom_selection),
+        }
     }
 
     /// Append [`Frame`]s to the `frames` buffer according to a [`Selection`].
@@ -299,7 +302,7 @@ impl XTCReader<File> {
     /// If successful, it will return the number of frames that were read.
     /// This can be useful since the selection itself is not enough to tell how many frames will
     /// actually be read.
-    pub fn read_frames(
+    pub fn read_frames<const BUFFERED: bool>(
         &mut self,
         frames: &mut impl Extend<Frame>,
         frame_selection: &FrameSelection,
@@ -314,7 +317,7 @@ impl XTCReader<File> {
                 None => break,
             }
             let mut frame = Frame::default();
-            self.read_frame_at_offset(&mut frame, offset, atom_selection)?;
+            self.read_frame_at_offset::<BUFFERED>(&mut frame, offset, atom_selection)?;
             frames.extend(Some(frame));
             n += 1;
         }

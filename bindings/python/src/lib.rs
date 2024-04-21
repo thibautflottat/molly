@@ -90,15 +90,32 @@ impl FromPyObject<'_> for AtomSelection {
 struct XTCReader {
     inner: molly::XTCReader<std::fs::File>,
     frame: Option<Frame>,
+    buffered: bool,
 }
 
 #[pymethods]
 impl XTCReader {
     /// Open a file as an `XTCReader`.
     #[new]
-    fn open(path: PathBuf) -> io::Result<Self> {
+    #[pyo3(signature = (path, buffered=true))]
+    fn open(path: PathBuf, buffered: bool) -> io::Result<Self> {
         let inner = molly::XTCReader::open(path)?;
-        Ok(Self { inner, frame: None })
+        Ok(Self {
+            inner,
+            frame: None,
+            buffered,
+        })
+    }
+
+    #[getter]
+    fn get_buffered(&self) -> bool {
+        self.buffered
+    }
+
+    #[setter]
+    fn set_buffered(&mut self, buffered: bool) -> PyResult<()> {
+        self.buffered = buffered;
+        Ok(())
     }
 
     #[getter]
@@ -137,17 +154,30 @@ impl XTCReader {
     }
 
     /// Read frames according to the selections and return the frames as a list.
+    ///
+    /// # Note
+    ///
+    /// This function can perform the reads in a buffered manner, depending on the value of the
+    /// `buffered` attribute.
     fn read_frames(
         &mut self,
         frame_selection: Option<FrameSelection>,
         atom_selection: Option<AtomSelection>,
     ) -> io::Result<Vec<Frame>> {
         let mut frames = Vec::new();
-        self.inner.read_frames(
-            &mut frames,
-            &frame_selection.unwrap_or_default().into(),
-            &atom_selection.unwrap_or_default().into(),
-        )?;
+        let frame_selection = frame_selection.unwrap_or_default().into();
+        let atom_selection = atom_selection.unwrap_or_default().into();
+        match self.buffered {
+            true => {
+                self.inner
+                    .read_frames::<true>(&mut frames, &frame_selection, &atom_selection)?
+            }
+            false => {
+                self.inner
+                    .read_frames::<false>(&mut frames, &frame_selection, &atom_selection)?
+            }
+        };
+
         Ok(frames.into_iter().map(|frame| frame.into()).collect())
     }
 
@@ -158,6 +188,11 @@ impl XTCReader {
     /// The `boxvec_array` must have a shape of `(nframes, 3, 3)`.
     ///
     /// Returns `True` if the reading operation was successful.
+    ///
+    /// # Note
+    ///
+    /// This function can perform the reads in a buffered manner, depending on the value of the
+    /// `buffered` attribute.
     fn read_into_array(
         &mut self,
         py: Python<'_>,
@@ -246,8 +281,19 @@ impl XTCReader {
             .enumerate()
         {
             py.check_signals()?;
-            self.inner
-                .read_frame_at_offset(&mut frame, offset, &atom_selection)?;
+            match self.buffered {
+                true => {
+                    self.inner
+                        .read_frame_at_offset::<true>(&mut frame, offset, &atom_selection)?;
+                }
+                false => {
+                    self.inner.read_frame_at_offset::<false>(
+                        &mut frame,
+                        offset,
+                        &atom_selection,
+                    )?;
+                }
+            };
             // TODO: Check whether the two unwraps here can just be elided somehow.
             array_coordinates
                 .rows_mut()

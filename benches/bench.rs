@@ -8,7 +8,14 @@ use molly::{
 };
 
 benchmark_main!(reading, decoding);
-benchmark_group!(reading, read_frame, read_frames);
+benchmark_group!(
+    reading,
+    read_frame,
+    read_frames,
+    read_frames_buffered,
+    read_frames_few_atoms,
+    read_frames_few_atoms_buffered
+);
 benchmark_group!(decoding, read_compressed_positions);
 
 const PATH: &str = "tests/trajectories/adk_oplsaa.xtc";
@@ -28,7 +35,37 @@ fn read_frames(b: &mut Bencher) {
     let mut frames = Vec::new();
     b.iter(|| {
         reader
-            .read_frames(&mut frames, &FrameSelection::All, &AtomSelection::All)
+            .read_frames::<false>(&mut frames, &FrameSelection::All, &AtomSelection::All)
+            .unwrap();
+    });
+}
+
+fn read_frames_buffered(b: &mut Bencher) {
+    let mut reader = XTCReader::open(PATH).unwrap();
+    let mut frames = Vec::new();
+    b.iter(|| {
+        reader
+            .read_frames::<true>(&mut frames, &FrameSelection::All, &AtomSelection::All)
+            .unwrap();
+    });
+}
+
+fn read_frames_few_atoms(b: &mut Bencher) {
+    let mut reader = XTCReader::open(PATH).unwrap();
+    let mut frames = Vec::new();
+    b.iter(|| {
+        reader
+            .read_frames::<false>(&mut frames, &FrameSelection::All, &AtomSelection::Until(10))
+            .unwrap();
+    });
+}
+
+fn read_frames_few_atoms_buffered(b: &mut Bencher) {
+    let mut reader = XTCReader::open(PATH).unwrap();
+    let mut frames = Vec::new();
+    b.iter(|| {
+        reader
+            .read_frames::<true>(&mut frames, &FrameSelection::All, &AtomSelection::Until(10))
             .unwrap();
     });
 }

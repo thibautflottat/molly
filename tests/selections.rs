@@ -18,7 +18,7 @@ fn count_frames(
     frame_selection: FS,
     atom_selection: AS,
 ) -> std::io::Result<usize> {
-    reader.read_frames(frames, &frame_selection, &atom_selection)?;
+    reader.read_frames::<true>(frames, &frame_selection, &atom_selection)?;
     let nframes = frames.len();
     frames.clear();
     reader.home()?;

@@ -13,7 +13,7 @@ fn main() -> std::io::Result<()> {
     let frame_selection = FrameSelection::Range(range);
     let atom_selection = AtomSelection::All;
     let mut frames = Void;
-    let n = reader.read_frames(&mut frames, &frame_selection, &atom_selection)?;
+    let n = reader.read_frames::<true>(&mut frames, &frame_selection, &atom_selection)?;
     eprintln!("reader: read {n} frames");
 
     Ok(())
