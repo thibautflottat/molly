@@ -134,7 +134,6 @@ impl<'s, 'r> Buffered<'s, 'r, File> for Buffer<'s, 'r> {
 
     fn finish(self) -> io::Result<()> {
         self.reader.seek(SeekFrom::Current(self.left() as i64))?;
-        drop(self);
         Ok(())
     }
 }
