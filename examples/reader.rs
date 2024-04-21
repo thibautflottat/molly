@@ -5,6 +5,7 @@ fn main() -> std::io::Result<()> {
     let mut args = std::env::args().skip(1);
     let path = args.next().expect("please provide one xtc trajectory path");
     let range = args.next().unwrap_or(String::from("::"));
+    let is_buffered = args.next().map(|s| s == "buffered").unwrap_or_default();
 
     let file = std::fs::File::open(path)?;
     let mut reader = XTCReader::new(file);
@@ -13,7 +14,10 @@ fn main() -> std::io::Result<()> {
     let frame_selection = FrameSelection::Range(range);
     let atom_selection = AtomSelection::All;
     let mut frames = Void;
-    let n = reader.read_frames::<true>(&mut frames, &frame_selection, &atom_selection)?;
+    let n = match is_buffered {
+        true => reader.read_frames::<true>(&mut frames, &frame_selection, &atom_selection)?,
+        false => reader.read_frames::<false>(&mut frames, &frame_selection, &atom_selection)?,
+    };
     eprintln!("reader: read {n} frames");
 
     Ok(())
