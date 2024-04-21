@@ -1,4 +1,4 @@
-#![feature(array_chunks, iter_array_chunks, array_try_map)]
+#![feature(array_chunks, iter_array_chunks)]
 
 use std::fs::File;
 use std::io::{self, Read, Seek, SeekFrom};

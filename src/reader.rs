@@ -36,8 +36,19 @@ pub fn read_compressed_positions<'s, 'r, B: Buffered<'s, 'r, R>, R: Read>(
 
     let invprecision = precision.recip();
 
-    let minint = [0; 3].try_map(|_| read_i32(file))?;
-    let maxint = [0; 3].try_map(|_| read_i32(file))?;
+    // TODO: Once `array_try_map` is stable, both of these inits can be cleaned up significantly.
+    let minint = [0; 3]
+        .map(|_| read_i32(file))
+        .into_iter()
+        .collect::<io::Result<Vec<_>>>()?
+        .try_into()
+        .unwrap();
+    let maxint = [0; 3]
+        .map(|_| read_i32(file))
+        .into_iter()
+        .collect::<io::Result<Vec<_>>>()?
+        .try_into()
+        .unwrap();
     let mut smallidx = read_u32(file)? as usize;
     assert!(smallidx < MAGICINTS.len());
 
