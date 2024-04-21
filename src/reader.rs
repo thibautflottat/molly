@@ -76,7 +76,11 @@ pub fn read_compressed_positions<'s, 'r, B: Buffered<'s, 'r, R>, R: Read>(
     let mut read_idx = 0;
     while read_idx < natoms {
         let mut coord = [0i32; 3];
-        let mut position: &mut [f32; 3] = positions.array_chunks_mut().nth(write_idx).unwrap();
+        let mut position: &mut [f32; 3] = positions
+            .chunks_exact_mut(3)
+            .nth(write_idx)
+            .map(|pos| pos.try_into().unwrap())
+            .unwrap();
         if bitsize == 0 {
             coord[0] = decodebits::<_, R>(&mut buffer, &mut state, bitsizeint[0] as usize);
             coord[1] = decodebits::<_, R>(&mut buffer, &mut state, bitsizeint[1] as usize);
@@ -141,16 +145,16 @@ pub fn read_compressed_positions<'s, 'r, B: Buffered<'s, 'r, R>, R: Read>(
                     std::mem::swap(&mut coord[1], &mut prevcoord[1]);
                     std::mem::swap(&mut coord[2], &mut prevcoord[2]);
                     write_position!(position, write_idx, read_idx, prevcoord);
-                    position = match positions.array_chunks_mut().nth(write_idx) {
-                        Some(c) => c,
+                    position = match positions.chunks_exact_mut(3).nth(write_idx) {
+                        Some(c) => c.try_into().unwrap(),
                         None => break,
                     };
                 } else {
                     prevcoord = coord;
                 }
                 write_position!(position, write_idx, read_idx, coord);
-                position = match positions.array_chunks_mut().nth(write_idx) {
-                    Some(c) => c,
+                position = match positions.chunks_exact_mut(3).nth(write_idx) {
+                    Some(c) => c.try_into().unwrap(),
                     None => break,
                 };
             }

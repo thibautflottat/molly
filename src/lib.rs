@@ -1,5 +1,3 @@
-#![feature(array_chunks, iter_array_chunks)]
-
 use std::fs::File;
 use std::io::{self, Read, Seek, SeekFrom};
 use std::{cell::Cell, path::Path};
@@ -34,7 +32,7 @@ pub struct Frame {
 impl Frame {
     /// Returns an iterator over the coordinates stored in this [`Frame`].
     pub fn coords(&self) -> impl Iterator<Item = Vec3> + '_ {
-        self.positions.array_chunks().map(|&c| Vec3::from_array(c))
+        self.positions.chunks_exact(3).map(|c| Vec3::from_slice(c))
     }
 }
 
@@ -150,11 +148,11 @@ impl<R: Read> XTCReader<R> {
             read_f32s(file, buf)?;
             frame.positions.truncate(0);
             frame.positions.extend(
-                buf.array_chunks()
+                buf.chunks_exact(3)
                     .enumerate()
-                    .filter_map(|(idx, pos): (usize, &[f32; 3])| {
+                    .filter_map(|(idx, pos): (usize, &[f32])| -> Option<[f32; 3]> {
                         if atom_selection.is_included(idx).unwrap_or_default() {
-                            Some(pos)
+                            Some(pos.try_into().unwrap())
                         } else {
                             None
                         }
@@ -406,11 +404,11 @@ impl XTCReader<File> {
             read_f32s(file, buf)?;
             frame.positions.truncate(0);
             frame.positions.extend(
-                buf.array_chunks()
+                buf.chunks_exact(3)
                     .enumerate()
-                    .filter_map(|(idx, pos): (usize, &[f32; 3])| {
+                    .filter_map(|(idx, pos): (usize, &[f32])| -> Option<[f32; 3]> {
                         if atom_selection.is_included(idx).unwrap_or_default() {
-                            Some(pos)
+                            Some(pos.try_into().unwrap())
                         } else {
                             None
                         }
