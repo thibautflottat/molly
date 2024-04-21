@@ -68,6 +68,7 @@ impl Buffer<'_, '_> {
     }
 
     /// Read enough bytes such that `index` points to a valid byte.
+    #[cold]
     fn read_to_include(&mut self, index: usize) -> io::Result<()> {
         while self.idx <= index {
             // TODO(buffered): Consider dealing with n_bytes == 0 indicating eof.
