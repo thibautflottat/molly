@@ -17,6 +17,24 @@ fn compare(path: impl AsRef<std::path::Path>) -> std::io::Result<()> {
         .expect("couldn't get number of atoms from xdrfile");
     let mut xdr_frame = xdrfile::Frame::with_len(num_atoms);
 
+    // Compare our buffered and unbuffered implementations.
+    let mut buffered_read_frames = Vec::new();
+    molly_reader.read_frames::<true>(
+        &mut buffered_read_frames,
+        &molly::selection::FrameSelection::All,
+        &molly::selection::AtomSelection::All,
+    )?;
+    molly_reader.home()?;
+    let mut unbuffered_read_frames = Vec::new();
+    molly_reader.read_frames::<false>(
+        &mut unbuffered_read_frames,
+        &molly::selection::FrameSelection::All,
+        &molly::selection::AtomSelection::All,
+    )?;
+    molly_reader.home()?;
+    assert_eq!(buffered_read_frames, unbuffered_read_frames, "the buffered and unbuffered readers should give identical results");
+
+    // Compare against other implementations.
     while molly_reader.read_frame(&mut molly_frame).is_ok() {
         cf_reader
             .read(&mut cf_frame)

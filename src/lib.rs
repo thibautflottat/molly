@@ -19,7 +19,7 @@ thread_local! {
 
 pub type BoxVec = Mat3;
 
-#[derive(Debug, Default, Clone)]
+#[derive(Debug, Default, Clone, PartialEq)]
 pub struct Frame {
     pub step: u32,
     /// Time in picoseconds.
