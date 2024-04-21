@@ -32,7 +32,10 @@ fn compare(path: impl AsRef<std::path::Path>) -> std::io::Result<()> {
         &molly::selection::AtomSelection::All,
     )?;
     molly_reader.home()?;
-    assert_eq!(buffered_read_frames, unbuffered_read_frames, "the buffered and unbuffered readers should give identical results");
+    assert_eq!(
+        buffered_read_frames, unbuffered_read_frames,
+        "the buffered and unbuffered readers should give identical results"
+    );
 
     // Compare against other implementations.
     while molly_reader.read_frame(&mut molly_frame).is_ok() {
