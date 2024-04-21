@@ -32,7 +32,7 @@ pub struct Frame {
 impl Frame {
     /// Returns an iterator over the coordinates stored in this [`Frame`].
     pub fn coords(&self) -> impl Iterator<Item = Vec3> + '_ {
-        self.positions.chunks_exact(3).map(|c| Vec3::from_slice(c))
+        self.positions.chunks_exact(3).map(Vec3::from_slice)
     }
 }
 
