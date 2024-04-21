@@ -62,14 +62,6 @@ impl Buffer<'_, '_> {
         self.scratch.len()
     }
 
-    // TODO: I have inlined this function wherever possible, so it is basically useless at this
-    // point, beyond a debug assert.
-    /// Returns a reference to the valid section of this [`Buffer`].
-    #[inline(always)]
-    fn valid(&self) -> &[u8] {
-        &self.scratch[..self.idx]
-    }
-
     /// Returns the number of bytes that are yet to be read by this [`Buffer`].
     const fn left(&self) -> usize {
         self.size() - self.idx
