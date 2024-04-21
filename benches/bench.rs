@@ -9,11 +9,7 @@ use molly::{
 
 benchmark_main!(reading, decoding);
 benchmark_group!(reading, read_frame, read_frames);
-benchmark_group!(
-    decoding,
-    read_compressed_positions,
-    // read_compressed_positions_buffered
-);
+benchmark_group!(decoding, read_compressed_positions);
 
 const PATH: &str = "tests/trajectories/adk_oplsaa.xtc";
 
