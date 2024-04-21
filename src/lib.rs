@@ -284,6 +284,15 @@ impl XTCReader<File> {
     }
 
     /// Seeks to offset, then reads and returns a [`Frame`] and advances one step.
+    ///
+    /// # Note
+    ///
+    /// The `BUFFERED` const generic value can be used to set whether the frame reader will read in
+    /// a buffered manner or not at compile time.
+    ///
+    /// Buffered reading is most favorable when a small number of positions are read from the top of
+    /// the frame (leaving many positions that do not need to be read at the bottom), especially at the
+    /// point where disk read speed is a bottleneck.
     pub fn read_frame_at_offset<const BUFFERED: bool>(
         &mut self,
         frame: &mut Frame,
@@ -292,8 +301,8 @@ impl XTCReader<File> {
     ) -> io::Result<()> {
         self.file.seek(SeekFrom::Start(offset))?;
         match BUFFERED {
-            true => self.read_frame_with_selection_buffered(frame, atom_selection),
             false => self.read_frame_with_selection(frame, atom_selection),
+            true => self.read_frame_with_selection_buffered(frame, atom_selection),
         }
     }
 
@@ -302,6 +311,15 @@ impl XTCReader<File> {
     /// If successful, it will return the number of frames that were read.
     /// This can be useful since the selection itself is not enough to tell how many frames will
     /// actually be read.
+    ///
+    /// # Note
+    ///
+    /// The `BUFFERED` const generic value can be used to set whether the frame reader will read in
+    /// a buffered manner or not at compile time.
+    ///
+    /// Buffered reading is most favorable when a small number of positions are read from the top of
+    /// the frame (leaving many positions that do not need to be read at the bottom), especially at the
+    /// point where disk read speed is a bottleneck.
     pub fn read_frames<const BUFFERED: bool>(
         &mut self,
         frames: &mut impl Extend<Frame>,
