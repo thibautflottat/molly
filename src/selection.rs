@@ -305,8 +305,8 @@ mod tests {
 
             let mask_empty = AtomSelection::Mask(vec![]);
             let mask_false = AtomSelection::Mask(vec![false; m]);
-            let list_empty = AtomSelection::from_index_list(&vec![]);
-            let list_zero = AtomSelection::from_index_list(&vec![0]);
+            let list_empty = AtomSelection::from_index_list(&[]);
+            let list_zero = AtomSelection::from_index_list(&[0]);
             let until_zero = AtomSelection::Until(0);
 
             for idx in 0..1000 {

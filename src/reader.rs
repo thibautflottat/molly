@@ -506,6 +506,7 @@ mod tests {
     const HEADER_BYTES: usize = 60;
     const N_ATOMS: usize = 125;
     #[rustfmt::skip]
+    #[allow(clippy::excessive_precision)]
     const CORRECT_POSITIONS: [f32; 375] = [
         0.86700004, 1.24200010, 0.83700001,  0.84400004, 1.25100004, 0.85100001,
         0.89300006, 1.22100007, 0.83700001,  0.88800007, 1.19900000, 0.85200005,
