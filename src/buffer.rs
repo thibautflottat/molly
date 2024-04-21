@@ -58,25 +58,24 @@ pub(crate) struct Buffer<'s, 'r> {
 
 impl Buffer<'_, '_> {
     /// Returns the size of this [`Buffer`].
-    fn size(&self) -> usize {
+    const fn size(&self) -> usize {
         self.scratch.len()
     }
 
+    // TODO: I have inlined this function wherever possible, so it is basically useless at this
+    // point, beyond a debug assert.
     /// Returns a reference to the valid section of this [`Buffer`].
+    #[inline(always)]
     fn valid(&self) -> &[u8] {
         &self.scratch[..self.idx]
     }
 
     /// Returns the number of bytes that are yet to be read by this [`Buffer`].
-    fn left(&self) -> usize {
-        self.size() - self.valid().len()
+    const fn left(&self) -> usize {
+        self.size() - self.idx
     }
-}
 
-impl Buffer<'_, '_> {
     /// Read enough bytes such that `index` points to a valid byte.
-    // TODO: Limit the number of bytes that are read in this operation. We don't want to go
-    // overboard!
     fn read_to_include(&mut self, index: usize) -> io::Result<()> {
         while self.idx <= index {
             // TODO(buffered): Consider dealing with n_bytes == 0 indicating eof.
@@ -86,6 +85,11 @@ impl Buffer<'_, '_> {
             let until = usize::min(self.size(), index + Self::BLOCK_SIZE);
             self.idx += self.reader.read(&mut self.scratch[self.idx..until])?;
         }
+        assert!(
+            index < self.idx,
+            "index ({index}) must be within than the defined valid range (..{valid})",
+            valid = self.idx
+        );
         Ok(())
     }
 }
@@ -113,27 +117,26 @@ impl<'s, 'r> Buffered<'s, 'r, File> for Buffer<'s, 'r> {
         Ok(buffer)
     }
 
+    #[inline(always)]
     fn fetch(&mut self, index: usize) -> u8 {
-        assert!(
+        debug_assert!(
             index < self.size(),
             "index ({index}) must be within the defined range of the scratch buffer (..{size})",
             size = self.size()
         );
-        match self.valid().get(index) {
-            Some(&b) => b,
-            None => {
-                // FIXME(buffered): For now, let's just fuck this up with a terrible unwrap here.
-                // Gotta change this to be io::Result at some point? If we can muster the perf hit
-                // at least...
-                self.read_to_include(index).unwrap();
-                assert!(
-                    index < self.idx,
-                    "index ({index}) must be within than the defined valid range (..{valid})",
-                    valid = self.idx
-                );
-                self.valid()[index] // Gotta be correct, now.
-            }
+
+        // If we're out of bytes, we'll have to read new ones.
+        // NOTE: This branch is pretty much singularly responsible for the performance difference
+        // between unbuffered and buffered decompression (cf. the impl of this function for
+        // `UnBuffered`).
+        if index >= self.idx {
+            // FIXME(buffered): For now, let's just fuck this up with a terrible unwrap here.
+            // Gotta change this to be io::Result at some point? If we can muster the perf hit
+            // at least...
+            self.read_to_include(index).unwrap();
         }
+
+        self.scratch[index]
     }
 
     fn finish(self) -> io::Result<()> {
@@ -151,7 +154,7 @@ impl<'s, 'r, R: Read> Buffered<'s, 'r, R> for UnBuffered<'s> {
     }
 
     fn fetch(&mut self, index: usize) -> u8 {
-        assert!(
+        debug_assert!(
             index < self.len(),
             "index ({index}) must be within the defined range of the scratch buffer (..{size})",
             size = self.len()
