@@ -5,6 +5,11 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "molly"
 version = "1.0"
+authors = [
+	{ name="Marieke Westendorp", email="ma3ke.cyber@gmail.com" },
+]
+description = "Python bindings for molly, a fast xtc reader"
+readme = "README.md"
 dependencies = [
 	"numpy",
 ]
