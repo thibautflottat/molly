@@ -5,6 +5,9 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "molly"
 version = "1.0"
+dependencies = [
+	"numpy",
+]
 
 [tool.setuptools.packages]
 find = { where = ["python"] }
