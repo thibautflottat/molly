@@ -22,6 +22,9 @@ pub const MAGICINTS: [i32; 73] = [
 ];
 pub const FIRSTIDX: usize = 9; // Note that MAGICINTS[FIRSTIDX-1] == 0.
 
+/// The number of bytes that together form the prelude of `maxint`, `minint`, and `smallidx`.
+pub const NBYTES_POSITIONS_PRELUDE: usize = 7 * 4;
+
 #[inline]
 /// The low-level decompression routine.
 ///
@@ -52,7 +55,14 @@ pub fn read_compressed_positions<'s, 'r, B: Buffered<'s, 'r, R>, R: Read>(
         .collect::<io::Result<Vec<_>>>()?
         .try_into()
         .unwrap();
-    let mut smallidx = read_u32(file)? as usize;
+    let smallidx = read_u32(file)?;
+    assert_eq!(
+        std::mem::size_of_val(&minint)
+            + std::mem::size_of_val(&maxint)
+            + std::mem::size_of_val(&smallidx),
+        NBYTES_POSITIONS_PRELUDE
+    );
+    let mut smallidx = smallidx as usize;
     assert!(smallidx < MAGICINTS.len());
 
     let mut sizeint = [0u32; 3];
