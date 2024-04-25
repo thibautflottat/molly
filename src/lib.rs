@@ -83,6 +83,34 @@ impl Frame {
     }
 }
 
+fn read_positions<'s, 'r, B: buffer::Buffered<'s, 'r, R>, R: Read>(
+    file: &'r mut R,
+    natoms: usize,
+    scratch: &'s mut Vec<u8>,
+    frame: &mut Frame,
+    atom_selection: &AtomSelection,
+) -> io::Result<()> {
+    // If the atom_selection specifies fewer atoms, we will only allocate up to that point.
+    let natoms_selected = match atom_selection {
+        AtomSelection::All => natoms,
+        AtomSelection::Mask(mask) => mask.iter().take(natoms).filter(|&&include| include).count(),
+        AtomSelection::Until(end) => *end as usize,
+    };
+    let natoms = usize::min(natoms, natoms_selected);
+
+    frame.positions.resize(natoms * 3, 0.0);
+    frame.precision = read_f32(file)?;
+    read_compressed_positions::<B, R>(
+        file,
+        &mut frame.positions,
+        frame.precision,
+        scratch,
+        atom_selection,
+    )?;
+
+    Ok(())
+}
+
 #[derive(Debug, Clone)]
 pub struct XTCReader<R> {
     pub file: R,
@@ -211,34 +239,26 @@ impl<R: Read> XTCReader<R> {
         scratch: &mut Vec<u8>,
         atom_selection: &AtomSelection,
     ) -> io::Result<()> {
+        self.read_frame_with_scratch_impl::<UnBuffered>(frame, scratch, atom_selection)
+    }
+
+    /// Implementation of reading a frame with a scratch buffer.
+    fn read_frame_with_scratch_impl<'s, 'r, B: buffer::Buffered<'s, 'r, R>>(
+        &'r mut self,
+        frame: &mut Frame,
+        scratch: &'s mut Vec<u8>,
+        atom_selection: &AtomSelection,
+    ) -> io::Result<()> {
         // Start of by reading the header.
         let header = self.read_header()?;
         let natoms = header.natoms;
 
         // Now, we read the atoms.
         if natoms <= 9 {
-            self.read_smol_positions(natoms, frame, atom_selection)?;
+            self.read_smol_positions(natoms, frame, atom_selection)?
         } else {
-            // If the atom_selection specifies fewer atoms, we will only allocate up to that point.
-            let natoms_selected = match atom_selection {
-                AtomSelection::All => natoms,
-                AtomSelection::Mask(mask) => {
-                    mask.iter().take(natoms).filter(|&&include| include).count()
-                }
-                AtomSelection::Until(end) => *end as usize,
-            };
-            let natoms = usize::min(natoms, natoms_selected);
-
-            frame.positions.resize(natoms * 3, 0.0);
-            frame.precision = read_f32(&mut self.file)?;
-            read_compressed_positions::<UnBuffered, _>(
-                &mut self.file,
-                &mut frame.positions,
-                frame.precision,
-                scratch,
-                atom_selection,
-            )?;
-            scratch.truncate(0);
+            scratch.truncate(0); // Make sure that our scratch is ready to go!
+            read_positions::<B, R>(&mut self.file, natoms, scratch, frame, atom_selection)?;
         }
 
         self.step += 1;
@@ -427,42 +447,6 @@ impl XTCReader<File> {
         scratch: &mut Vec<u8>,
         atom_selection: &AtomSelection,
     ) -> io::Result<()> {
-        // Start of by reading the header.
-        let header = self.read_header()?;
-        let natoms = header.natoms;
-
-        // Now, we read the atoms.
-        if natoms <= 9 {
-            self.read_smol_positions(natoms, frame, atom_selection)?;
-        } else {
-            // If the atom_selection specifies fewer atoms, we will only allocate up to that point.
-            let natoms_selected = match atom_selection {
-                AtomSelection::All => natoms,
-                AtomSelection::Mask(mask) => {
-                    mask.iter().take(natoms).filter(|&&include| include).count()
-                }
-                AtomSelection::Until(end) => *end as usize,
-            };
-            let natoms = usize::min(natoms, natoms_selected);
-
-            frame.positions.resize(natoms * 3, 0.0);
-            frame.precision = read_f32(&mut self.file)?;
-            read_compressed_positions::<Buffer, _>(
-                &mut self.file,
-                &mut frame.positions,
-                frame.precision,
-                scratch,
-                atom_selection,
-            )?;
-            scratch.truncate(0);
-        }
-
-        self.step += 1;
-
-        frame.step = header.step;
-        frame.time = header.time;
-        frame.boxvec = header.boxvec;
-
-        Ok(())
+        self.read_frame_with_scratch_impl::<Buffer>(frame, scratch, atom_selection)
     }
 }
