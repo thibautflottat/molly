@@ -12,6 +12,8 @@ pub mod buffer;
 pub mod reader;
 pub mod selection;
 
+pub const MAGIC: i32 = 1995;
+
 thread_local! {
     /// A scratch buffer to read encoded bytes into for subsequent decoding.
     static SCRATCH: Cell<Vec<u8>> = const { Cell::new(Vec::new()) };
@@ -27,6 +29,41 @@ pub struct Header {
     pub time: f32,
     pub boxvec: Mat3,
     pub natoms_repeated: usize,
+}
+
+impl Header {
+    pub fn read(file: &mut impl Read) -> io::Result<Self> {
+        let magic = read_i32(file)?;
+        // TODO: This check ought to become a proper error.
+        // TODO: Also implement the 2023 magic number!
+        assert_eq!(
+            magic, MAGIC,
+            "found invalid magic number '{magic}' ({magic:#0x})"
+        );
+        let natoms: usize = read_i32(file)?
+            .try_into()
+            .map_err(|err| io::Error::other(format!("could not read natoms: {err}")))?;
+        let step: u32 = read_i32(file)?
+            .try_into()
+            .map_err(|err| io::Error::other(format!("could not read step: {err}")))?;
+        let time = read_f32(file)?;
+
+        // Read the frame data.
+        let boxvec = read_boxvec(file)?;
+        let natoms_repeated = read_i32(file)?
+            .try_into()
+            .map_err(|err| io::Error::other(format!("could not read second natoms: {err}")))?;
+        assert_eq!(natoms, natoms_repeated);
+
+        Ok(Header {
+            magic,
+            natoms,
+            step,
+            time,
+            boxvec,
+            natoms_repeated,
+        })
+    }
 }
 
 #[derive(Debug, Default, Clone, PartialEq)]
@@ -60,8 +97,6 @@ impl XTCReader<std::fs::File> {
 }
 
 impl<R: Read> XTCReader<R> {
-    pub const MAGIC: i32 = 1995;
-
     pub fn new(reader: R) -> Self {
         Self {
             file: reader,
@@ -73,39 +108,7 @@ impl<R: Read> XTCReader<R> {
     ///
     /// Assumes the internal reader is at the start of a new frame header.
     pub fn read_header(&mut self) -> io::Result<Header> {
-        let file = &mut self.file;
-
-        let magic = read_i32(file)?;
-        // TODO: This check ought to become a proper error.
-        // TODO: Also implement the 2023 magic number!
-        assert_eq!(
-            magic,
-            XTCReader::<R>::MAGIC,
-            "found invalid magic number '{magic}' ({magic:#0x})"
-        );
-        let natoms: usize = read_i32(file)?
-            .try_into()
-            .map_err(|err| io::Error::other(format!("could not read natoms: {err}")))?;
-        let step: u32 = read_i32(file)?
-            .try_into()
-            .map_err(|err| io::Error::other(format!("could not read step: {err}")))?;
-        let time = read_f32(file)?;
-
-        // Read the frame data.
-        let boxvec = read_boxvec(file)?;
-        let natoms_repeated = read_i32(file)?
-            .try_into()
-            .map_err(|err| io::Error::other(format!("could not read second natoms: {err}")))?;
-        assert_eq!(natoms, natoms_repeated);
-
-        Ok(Header {
-            magic,
-            natoms,
-            step,
-            time,
-            boxvec,
-            natoms_repeated,
-        })
+        Header::read(&mut self.file)
     }
 
     /// Read a small number of uncompressed positions.
@@ -278,7 +281,7 @@ impl XTCReader<File> {
 
         while until.map_or(true, |until| offsets.len() < until) {
             match read_i32(file) {
-                Ok(Self::MAGIC) => {}
+                Ok(MAGIC) => {}
                 Ok(weird) => Err(io::Error::other(format!(
                     "found invalid magic number '{weird}' ({weird:#0x})"
                 )))?,
