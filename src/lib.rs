@@ -156,18 +156,20 @@ impl<R: Read> XTCReader<R> {
 
     /// Read a small number of uncompressed positions.
     ///
+    /// If successful, returns the number of compressed bytes that were read.
+    ///
     /// # Panics
     ///
     /// `natoms` must be 9 or less, otherwise the positions must be decompressed and cannot be read
     /// directly through this function.  
     ///
     /// Oh xtc, you are so fucking weird.
-    fn read_smol_positions(
+    pub fn read_smol_positions(
         &mut self,
         natoms: usize,
         frame: &mut Frame,
         atom_selection: &AtomSelection,
-    ) -> io::Result<()> {
+    ) -> io::Result<usize> {
         assert!(
             natoms <= 9,
             "only read uncomprossed positions when the number of atoms is 9 or less"
@@ -195,7 +197,7 @@ impl<R: Read> XTCReader<R> {
         // basically invalid, or just irrelevant here, since we don't decode them. They were
         // never compressed to begin with.
 
-        Ok(())
+        Ok(buf.len() * std::mem::size_of::<f32>())
     }
 
     /// A convenience function to read all frames in a trajectory.
