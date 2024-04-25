@@ -29,7 +29,7 @@ pub fn read_compressed_positions<'s, 'r, B: Buffered<'s, 'r, R>, R: Read>(
     precision: f32,
     scratch: &'s mut Vec<u8>,
     atom_selection: &AtomSelection,
-) -> io::Result<()> {
+) -> io::Result<usize> {
     let n = positions.len();
     assert_eq!(n % 3, 0, "the length of `positions` must be divisible by 3");
     let natoms = n / 3;
@@ -74,7 +74,7 @@ pub fn read_compressed_positions<'s, 'r, B: Buffered<'s, 'r, R>, R: Read>(
     let mut prevcoord;
     let mut write_idx = 0;
     let mut read_idx = 0;
-    while read_idx < natoms {
+    'decompress: while read_idx < natoms {
         let mut coord = [0i32; 3];
         let mut position: &mut [f32; 3] = positions
             .chunks_exact_mut(3)
@@ -97,7 +97,7 @@ pub fn read_compressed_positions<'s, 'r, B: Buffered<'s, 'r, R>, R: Read>(
         macro_rules! write_position {
             ($position:ident, $write_idx:ident, $read_idx:ident, $coord:ident  ) => {
                 match atom_selection.is_included($read_idx) {
-                    None => return Ok(()),
+                    None => break 'decompress,
                     Some(false) => {}
                     Some(true) => {
                         *$position = $coord.map(|v| v as f32 * invprecision);
@@ -185,7 +185,9 @@ pub fn read_compressed_positions<'s, 'r, B: Buffered<'s, 'r, R>, R: Read>(
         read_idx += 1;
     }
 
-    buffer.finish()
+    buffer.finish()?;
+
+    Ok(read_idx)
 }
 
 #[inline]
