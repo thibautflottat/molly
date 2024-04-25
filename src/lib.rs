@@ -81,6 +81,17 @@ impl Frame {
     pub fn coords(&self) -> impl Iterator<Item = Vec3> + '_ {
         self.positions.chunks_exact(3).map(Vec3::from_slice)
     }
+
+    /// Returns the number of atoms in this [`Frame`].
+    pub fn natoms(&self) -> usize {
+        let npos = self.positions.len();
+        assert_eq!(
+            npos % 3,
+            0,
+            "the number of single positions in a frame must always be a multiple of 3"
+        );
+        npos / 3
+    }
 }
 
 fn read_positions<'s, 'r, B: buffer::Buffered<'s, 'r, R>, R: Read>(
