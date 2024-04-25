@@ -129,7 +129,7 @@ pub fn read_positions<'s, 'r, B: buffer::Buffered<'s, 'r, R>, R: Read>(
 #[derive(Debug, Clone)]
 pub struct XTCReader<R> {
     pub file: R,
-    step: usize,
+    pub step: usize,
 }
 
 impl XTCReader<std::fs::File> {
