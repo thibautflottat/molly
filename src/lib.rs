@@ -19,6 +19,16 @@ thread_local! {
 
 pub type BoxVec = Mat3;
 
+/// The header of a single xtc frame.
+pub struct Header {
+    pub magic: i32,
+    pub natoms: usize,
+    pub step: u32,
+    pub time: f32,
+    pub boxvec: Mat3,
+    pub natoms_repeated: usize,
+}
+
 #[derive(Debug, Default, Clone, PartialEq)]
 pub struct Frame {
     pub step: u32,
@@ -57,6 +67,45 @@ impl<R: Read> XTCReader<R> {
             file: reader,
             step: 0,
         }
+    }
+
+    /// Read the header at the start of a frame.
+    ///
+    /// Assumes the internal reader is at the start of a new frame header.
+    pub fn read_header(&mut self) -> io::Result<Header> {
+        let file = &mut self.file;
+
+        let magic = read_i32(file)?;
+        // TODO: This check ought to become a proper error.
+        // TODO: Also implement the 2023 magic number!
+        assert_eq!(
+            magic,
+            XTCReader::<R>::MAGIC,
+            "found invalid magic number '{magic}' ({magic:#0x})"
+        );
+        let natoms: usize = read_i32(file)?
+            .try_into()
+            .map_err(|err| io::Error::other(format!("could not read natoms: {err}")))?;
+        let step: u32 = read_i32(file)?
+            .try_into()
+            .map_err(|err| io::Error::other(format!("could not read step: {err}")))?;
+        let time = read_f32(file)?;
+
+        // Read the frame data.
+        let boxvec = read_boxvec(file)?;
+        let natoms_repeated = read_i32(file)?
+            .try_into()
+            .map_err(|err| io::Error::other(format!("could not read second natoms: {err}")))?;
+        assert_eq!(natoms, natoms_repeated);
+
+        Ok(Header {
+            magic,
+            natoms,
+            step,
+            time,
+            boxvec,
+            natoms_repeated,
+        })
     }
 
     /// A convenience function to read all frames in a trajectory.
@@ -115,31 +164,12 @@ impl<R: Read> XTCReader<R> {
         scratch: &mut Vec<u8>,
         atom_selection: &AtomSelection,
     ) -> io::Result<()> {
-        let file = &mut self.file;
-
         // Start of by reading the header.
-        let magic = read_i32(file)?;
-        assert_eq!(
-            magic,
-            Self::MAGIC,
-            "found invalid magic number '{magic}' ({magic:#0x})"
-        );
-        let natoms: usize = read_i32(file)?
-            .try_into()
-            .map_err(|err| io::Error::other(format!("could not read natoms: {err}")))?;
-        let step: u32 = read_i32(file)?
-            .try_into()
-            .map_err(|err| io::Error::other(format!("could not read step: {err}")))?;
-        let time = read_f32(file)?;
-
-        // Read the frame data.
-        let boxvec = read_boxvec(file)?;
-        let natoms_repeated = read_i32(file)?
-            .try_into()
-            .map_err(|err| io::Error::other(format!("could not read second natoms: {err}")))?;
-        assert_eq!(natoms, natoms_repeated);
+        let header = self.read_header()?;
+        let natoms = header.natoms;
 
         // Now, we read the atoms.
+        let file = &mut self.file;
         if natoms <= 9 {
             // In case the number of atoms is very small, just read their uncompressed positions.
             frame.positions.resize(natoms * 3, 0.0);
@@ -187,9 +217,9 @@ impl<R: Read> XTCReader<R> {
 
         self.step += 1;
 
-        frame.step = step;
-        frame.time = time;
-        frame.boxvec = boxvec;
+        frame.step = header.step;
+        frame.time = header.time;
+        frame.boxvec = header.boxvec;
 
         Ok(())
     }
@@ -371,31 +401,12 @@ impl XTCReader<File> {
         scratch: &mut Vec<u8>,
         atom_selection: &AtomSelection,
     ) -> io::Result<()> {
-        let file = &mut self.file;
-
         // Start of by reading the header.
-        let magic = read_i32(file)?;
-        assert_eq!(
-            magic,
-            Self::MAGIC,
-            "found invalid magic number '{magic}' ({magic:#0x})"
-        );
-        let natoms: usize = read_i32(file)?
-            .try_into()
-            .map_err(|err| io::Error::other(format!("could not read natoms: {err}")))?;
-        let step: u32 = read_i32(file)?
-            .try_into()
-            .map_err(|err| io::Error::other(format!("could not read step: {err}")))?;
-        let time = read_f32(file)?;
-
-        // Read the frame data.
-        let boxvec = read_boxvec(file)?;
-        let natoms_repeated = read_i32(file)?
-            .try_into()
-            .map_err(|err| io::Error::other(format!("could not read second natoms: {err}")))?;
-        assert_eq!(natoms, natoms_repeated);
+        let header = self.read_header()?;
+        let natoms = header.natoms;
 
         // Now, we read the atoms.
+        let file = &mut self.file;
         if natoms <= 9 {
             // In case the number of atoms is very small, just read their uncompressed positions.
             frame.positions.resize(natoms * 3, 0.0);
@@ -443,9 +454,9 @@ impl XTCReader<File> {
 
         self.step += 1;
 
-        frame.step = step;
-        frame.time = time;
-        frame.boxvec = boxvec;
+        frame.step = header.step;
+        frame.time = header.time;
+        frame.boxvec = header.boxvec;
 
         Ok(())
     }
