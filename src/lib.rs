@@ -64,6 +64,25 @@ impl Header {
             natoms_repeated,
         })
     }
+
+    pub fn to_be_bytes(&self) -> [u8; 4 * (5 + 9)] {
+        let mut bytes = Vec::new();
+        bytes.extend(self.magic.to_be_bytes()); // i32
+        bytes.extend(i32::try_from(self.natoms).unwrap().to_be_bytes()); // i32
+        bytes.extend(i32::try_from(self.step).unwrap().to_be_bytes()); // i32
+        bytes.extend(self.time.to_be_bytes()); // f32
+        bytes.extend(
+            self.boxvec
+                .to_cols_array()
+                .map(f32::to_be_bytes)
+                .iter()
+                .flatten(),
+        ); // 9 × f32
+        assert_eq!(self.natoms, self.natoms_repeated);
+        bytes.extend(i32::try_from(self.natoms).unwrap().to_be_bytes()); // i32
+
+        bytes.try_into().unwrap()
+    }
 }
 
 #[derive(Debug, Default, Clone, PartialEq)]
