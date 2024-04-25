@@ -23,6 +23,9 @@ pub const MAGICINTS: [i32; 73] = [
 pub const FIRSTIDX: usize = 9; // Note that MAGICINTS[FIRSTIDX-1] == 0.
 
 #[inline]
+/// The low-level decompression routine.
+///
+/// If successful, returns the number of compressed bytes that were read.
 pub fn read_compressed_positions<'s, 'r, B: Buffered<'s, 'r, R>, R: Read>(
     file: &'r mut R,
     positions: &mut [f32],

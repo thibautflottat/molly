@@ -94,13 +94,19 @@ impl Frame {
     }
 }
 
-fn read_positions<'s, 'r, B: buffer::Buffered<'s, 'r, R>, R: Read>(
+/// Read the positions in a frame after the header.
+///
+/// If successful, returns the number of compressed bytes that were read.
+///
+/// Internal use.
+#[doc(hidden)]
+pub fn read_positions<'s, 'r, B: buffer::Buffered<'s, 'r, R>, R: Read>(
     file: &'r mut R,
     natoms: usize,
     scratch: &'s mut Vec<u8>,
     frame: &mut Frame,
     atom_selection: &AtomSelection,
-) -> io::Result<()> {
+) -> io::Result<usize> {
     // If the atom_selection specifies fewer atoms, we will only allocate up to that point.
     let natoms_selected = match atom_selection {
         AtomSelection::All => natoms,
@@ -117,9 +123,7 @@ fn read_positions<'s, 'r, B: buffer::Buffered<'s, 'r, R>, R: Read>(
         frame.precision,
         scratch,
         atom_selection,
-    )?;
-
-    Ok(())
+    )
 }
 
 #[derive(Debug, Clone)]
@@ -266,7 +270,7 @@ impl<R: Read> XTCReader<R> {
 
         // Now, we read the atoms.
         if natoms <= 9 {
-            self.read_smol_positions(natoms, frame, atom_selection)?
+            self.read_smol_positions(natoms, frame, atom_selection)?;
         } else {
             scratch.truncate(0); // Make sure that our scratch is ready to go!
             read_positions::<B, R>(&mut self.file, natoms, scratch, frame, atom_selection)?;
