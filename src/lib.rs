@@ -108,6 +108,50 @@ impl<R: Read> XTCReader<R> {
         })
     }
 
+    /// Read a small number of uncompressed positions.
+    ///
+    /// # Panics
+    ///
+    /// `natoms` must be 9 or less, otherwise the positions must be decompressed and cannot be read
+    /// directly through this function.  
+    ///
+    /// Oh xtc, you are so fucking weird.
+    fn read_smol_positions(
+        &mut self,
+        natoms: usize,
+        frame: &mut Frame,
+        atom_selection: &AtomSelection,
+    ) -> io::Result<()> {
+        assert!(
+            natoms <= 9,
+            "only read uncomprossed positions when the number of atoms is 9 or less"
+        );
+
+        // In case the number of atoms is very small, just read their uncompressed positions.
+        frame.positions.resize(natoms * 3, 0.0);
+        let mut buf = [0.0; 9 * 3]; // We have at most 9 atoms, so we handle them on the stack.
+        let buf = &mut buf[..natoms * 3];
+        read_f32s(&mut self.file, buf)?;
+        frame.positions.truncate(0);
+        frame.positions.extend(
+            buf.chunks_exact(3)
+                .enumerate()
+                .filter_map(|(idx, pos): (usize, &[f32])| -> Option<[f32; 3]> {
+                    if atom_selection.is_included(idx).unwrap_or_default() {
+                        Some(pos.try_into().unwrap())
+                    } else {
+                        None
+                    }
+                })
+                .flatten(),
+        );
+        // TODO: It is unclear to me what to do with the precision in this case. It is
+        // basically invalid, or just irrelevant here, since we don't decode them. They were
+        // never compressed to begin with.
+
+        Ok(())
+    }
+
     /// A convenience function to read all frames in a trajectory.
     ///
     /// It is likely more efficient to use [`XTCReader::read_frame`] if you are only interested in
@@ -169,29 +213,8 @@ impl<R: Read> XTCReader<R> {
         let natoms = header.natoms;
 
         // Now, we read the atoms.
-        let file = &mut self.file;
         if natoms <= 9 {
-            // In case the number of atoms is very small, just read their uncompressed positions.
-            frame.positions.resize(natoms * 3, 0.0);
-            let mut buf = [0.0; 9 * 3]; // We have at most 9 atoms, so we handle them on the stack.
-            let buf = &mut buf[..natoms * 3];
-            read_f32s(file, buf)?;
-            frame.positions.truncate(0);
-            frame.positions.extend(
-                buf.chunks_exact(3)
-                    .enumerate()
-                    .filter_map(|(idx, pos): (usize, &[f32])| -> Option<[f32; 3]> {
-                        if atom_selection.is_included(idx).unwrap_or_default() {
-                            Some(pos.try_into().unwrap())
-                        } else {
-                            None
-                        }
-                    })
-                    .flatten(),
-            );
-            // TODO: It is unclear to me what to do with the precision in this case. It is
-            // basically invalid, or just irrelevant here, since we don't decode them. They were
-            // never compressed to begin with.
+            self.read_smol_positions(natoms, frame, atom_selection)?;
         } else {
             // If the atom_selection specifies fewer atoms, we will only allocate up to that point.
             let natoms_selected = match atom_selection {
@@ -204,9 +227,9 @@ impl<R: Read> XTCReader<R> {
             let natoms = usize::min(natoms, natoms_selected);
 
             frame.positions.resize(natoms * 3, 0.0);
-            frame.precision = read_f32(file)?;
+            frame.precision = read_f32(&mut self.file)?;
             read_compressed_positions::<UnBuffered, _>(
-                file,
+                &mut self.file,
                 &mut frame.positions,
                 frame.precision,
                 scratch,
@@ -406,29 +429,8 @@ impl XTCReader<File> {
         let natoms = header.natoms;
 
         // Now, we read the atoms.
-        let file = &mut self.file;
         if natoms <= 9 {
-            // In case the number of atoms is very small, just read their uncompressed positions.
-            frame.positions.resize(natoms * 3, 0.0);
-            let mut buf = [0.0; 9 * 3]; // We have at most 9 atoms, so we handle them on the stack.
-            let buf = &mut buf[..natoms * 3];
-            read_f32s(file, buf)?;
-            frame.positions.truncate(0);
-            frame.positions.extend(
-                buf.chunks_exact(3)
-                    .enumerate()
-                    .filter_map(|(idx, pos): (usize, &[f32])| -> Option<[f32; 3]> {
-                        if atom_selection.is_included(idx).unwrap_or_default() {
-                            Some(pos.try_into().unwrap())
-                        } else {
-                            None
-                        }
-                    })
-                    .flatten(),
-            );
-            // TODO: It is unclear to me what to do with the precision in this case. It is
-            // basically invalid, or just irrelevant here, since we don't decode them. They were
-            // never compressed to begin with.
+            self.read_smol_positions(natoms, frame, atom_selection)?;
         } else {
             // If the atom_selection specifies fewer atoms, we will only allocate up to that point.
             let natoms_selected = match atom_selection {
@@ -441,9 +443,9 @@ impl XTCReader<File> {
             let natoms = usize::min(natoms, natoms_selected);
 
             frame.positions.resize(natoms * 3, 0.0);
-            frame.precision = read_f32(file)?;
+            frame.precision = read_f32(&mut self.file)?;
             read_compressed_positions::<Buffer, _>(
-                file,
+                &mut self.file,
                 &mut frame.positions,
                 frame.precision,
                 scratch,
