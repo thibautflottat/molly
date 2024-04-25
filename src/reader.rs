@@ -1,6 +1,6 @@
 use std::io::{self, Read};
 
-use crate::{buffer::Buffered, selection::AtomSelection, BoxVec};
+use crate::{buffer::Buffered, padding, selection::AtomSelection, BoxVec};
 
 struct DecodeState {
     count: usize,
@@ -207,8 +207,7 @@ pub(crate) fn read_boxvec<R: Read>(file: &mut R) -> io::Result<BoxVec> {
 
 pub(crate) fn read_opaque<R: Read>(file: &mut R, data: &mut Vec<u8>) -> io::Result<()> {
     let count = read_u32(file)? as usize;
-    let padding = (4 - (count % 4)) % 4; // FIXME: Why, and also, can we do this better?
-    data.resize(count + padding, 0);
+    data.resize(count + padding(count), 0);
     file.read_exact(data)
 }
 

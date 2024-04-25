@@ -94,6 +94,12 @@ impl Frame {
     }
 }
 
+/// Calculate the xdr padding for some number of bytes.
+#[doc(hidden)]
+pub fn padding(n: usize) -> usize {
+    (4 - (n % 4)) % 4
+}
+
 /// Read the positions in a frame after the header.
 ///
 /// If successful, returns the number of compressed bytes that were read.
@@ -329,8 +335,8 @@ impl XTCReader<File> {
             let skip: u64 = read_i32(file)?
                 .try_into()
                 .map_err(|err| io::Error::other(format!("could not read frame size: {err}")))?;
-            let padding = (4 - (skip as i64 % 4)) % 4; // FIXME: Why, and also, can we do this better?
-            let offset = file.seek(SeekFrom::Current(skip as i64 + padding))?;
+            let pad = padding(skip as usize);
+            let offset = file.seek(SeekFrom::Current(skip as i64 + pad as i64))?;
             offsets.push(offset);
         }
 

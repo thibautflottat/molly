@@ -1,6 +1,7 @@
 use std::fs::File;
 use std::io::{self, Read, Seek, SeekFrom};
 
+use crate::padding;
 use crate::reader::{read_opaque, read_u32};
 
 pub type UnBuffered<'s> = &'s [u8];
@@ -90,10 +91,9 @@ impl Buffer<'_, '_> {
 impl<'s, 'r> Buffered<'s, 'r, File> for Buffer<'s, 'r> {
     fn new(scratch: &'s mut Vec<u8>, reader: &'r mut File) -> io::Result<Self> {
         let count = read_u32(reader)? as usize;
-        let padding = (4 - (count % 4)) % 4; // FIXME: Why, and also, can we do this better?
 
         // Fill the scratch buffer with a cautionary value.
-        scratch.resize(count + padding, 0xff); // FIXME: Is MaybeUninit a good idea here?
+        scratch.resize(count + padding(count), 0xff); // FIXME: Is MaybeUninit a good idea here?
 
         let mut buffer = Self {
             scratch,
