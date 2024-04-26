@@ -32,6 +32,8 @@ pub struct Header {
 }
 
 impl Header {
+    pub const SIZE: usize = 4 * (5 + 9);
+
     pub fn read(file: &mut impl Read) -> io::Result<Self> {
         let magic = read_i32(file)?;
         // TODO: This check ought to become a proper error.
@@ -65,7 +67,7 @@ impl Header {
         })
     }
 
-    pub fn to_be_bytes(&self) -> [u8; 4 * (5 + 9)] {
+    pub fn to_be_bytes(&self) -> [u8; Self::SIZE] {
         let mut bytes = Vec::new();
         bytes.extend(self.magic.to_be_bytes()); // i32
         bytes.extend(i32::try_from(self.natoms).unwrap().to_be_bytes()); // i32
