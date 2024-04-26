@@ -207,7 +207,7 @@ impl<R: Read> XTCReader<R> {
         let mut buf = [0.0; 9 * 3]; // We have at most 9 atoms, so we handle them on the stack.
         let buf = &mut buf[..natoms * 3];
         read_f32s(&mut self.file, buf)?;
-        frame.positions.truncate(0);
+        frame.positions.clear();
         frame.positions.extend(
             buf.chunks_exact(3)
                 .enumerate()
@@ -301,7 +301,6 @@ impl<R: Read> XTCReader<R> {
         if natoms <= 9 {
             self.read_smol_positions(natoms, frame, atom_selection)?;
         } else {
-            scratch.truncate(0); // Make sure that our scratch is ready to go!
             read_positions::<B, R>(&mut self.file, natoms, scratch, frame, atom_selection)?;
         }
 

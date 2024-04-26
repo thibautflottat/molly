@@ -76,6 +76,7 @@ pub fn read_compressed_positions<'s, 'r, B: Buffered<'s, 'r, R>, R: Read>(
     let mut smallnum = MAGICINTS[smallidx] / 2;
     let mut sizesmall = [MAGICINTS[smallidx] as u32; 3];
 
+    scratch.clear();
     let mut buffer = B::new(scratch, file)?;
 
     let mut state = DecodeState {
