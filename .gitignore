@@ -1,3 +1,4 @@
 /target
 /trajectories
 /venv
+*.xtc
