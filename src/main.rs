@@ -75,6 +75,12 @@ struct Args {
     /// most of the atoms in a frame.
     #[arg(long = "unbuffered", default_value_t=true, action=clap::ArgAction::SetFalse)]
     is_buffered: bool,
+
+    /// Write the trajectory in reverse.
+    ///
+    /// Selection functions the same regardless of whether this flag is set.
+    #[arg(long)]
+    reverse: bool,
 }
 
 fn main() -> std::io::Result<()> {
@@ -88,27 +94,38 @@ fn main() -> std::io::Result<()> {
     let atom_selection = args.atom_selection.unwrap_or_default();
     filter_frames(
         &mut reader,
+        args.is_buffered,
         &mut writer,
         &frame_selection,
         &atom_selection,
-        args.is_buffered,
+        args.reverse,
     )
 }
 
 fn filter_frames(
     reader: &mut XTCReader<File>,
+    is_buffered: bool,
     writer: &mut BufWriter<File>,
     frame_selection: &FrameSelection,
     atom_selection: &AtomSelection,
-    is_buffered: bool,
+    reversed: bool,
 ) -> std::io::Result<()> {
     let mut scratch = Vec::new();
     let offsets = reader.determine_offsets(frame_selection.until())?;
+    let enumerated_offsets: Vec<_> = {
+        let enumerated = offsets.iter().enumerate();
+        if reversed {
+            enumerated.rev().collect()
+        } else {
+            enumerated.collect()
+        }
+    };
     let mut frame = Frame::default();
-    for (idx, &offset) in offsets.iter().enumerate() {
+    for (idx, &offset) in enumerated_offsets {
         match frame_selection.is_included(idx) {
             Some(true) => {}
             Some(false) => continue,
+            None if !reversed => continue, // If we are reversed, we can't just stop early.
             None => break,
         }
 
