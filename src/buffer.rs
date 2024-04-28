@@ -48,10 +48,10 @@ pub struct Buffer<'s, 'r> {
     ///
     /// Accessing bytes from this buffer directly is valid iff the index of that byte < `self.idx`.
     scratch: &'s mut [u8],
-    /// Points to the next unread/unfilled byte in `scratch`.
+    /// Points to the next unfilled byte in `scratch`.
     ///
     /// The starting point for reading bytes from `reader` into `scratch`.
-    idx: usize, // TODO: Consider renaming this field.
+    front: usize,
     /// Points to the last-most byte that has been read.
     head: usize,
     reader: &'r mut File,
@@ -68,24 +68,24 @@ impl Buffer<'_, '_> {
 
     /// Returns the number of bytes that are yet to be read by this [`Buffer`].
     const fn left(&self) -> usize {
-        self.size() - self.idx
+        self.size() - self.front
     }
 
     /// Read enough bytes such that `index` points to a valid byte.
     #[cold]
     fn read_to_include(&mut self, index: usize) -> io::Result<()> {
-        while self.idx <= index {
+        while self.front <= index {
             // TODO(buffered): Consider dealing with n_bytes == 0 indicating eof.
             // Read a bunch of bytes limited by the size of the scratch buffer and BLOCK_SIZE.
             // We would rather do a couple more smaller reads (BLOCK_SIZE) than one big one that
             // goes way beyond what we need according to some AtomSelection.
             let until = usize::min(self.size(), index + Self::BLOCK_SIZE);
-            self.idx += self.reader.read(&mut self.scratch[self.idx..until])?;
+            self.front += self.reader.read(&mut self.scratch[self.front..until])?;
         }
         assert!(
-            index < self.idx,
+            index < self.front,
             "index ({index}) must be within than the defined valid range (..{valid})",
-            valid = self.idx
+            valid = self.front
         );
         Ok(())
     }
@@ -100,7 +100,7 @@ impl<'s, 'r> Buffered<'s, 'r, File> for Buffer<'s, 'r> {
 
         let mut buffer = Self {
             scratch,
-            idx: 0,
+            front: 0,
             head: 0,
             reader,
         };
@@ -121,7 +121,7 @@ impl<'s, 'r> Buffered<'s, 'r, File> for Buffer<'s, 'r> {
         // between unbuffered and buffered decompression (cf. the impl of this function for
         // `UnBuffered`).
         let head = self.head;
-        if head >= self.idx {
+        if head >= self.front {
             // FIXME(buffered): For now, let's just fuck this up with a terrible unwrap here.
             // Gotta change this to be io::Result at some point? If we can muster the perf hit
             // at least...
