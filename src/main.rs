@@ -81,6 +81,16 @@ struct Args {
     /// Selection functions the same regardless of whether this flag is set.
     #[arg(long)]
     reverse: bool,
+
+    /// Print the time value for the selected frames to standard output.
+    #[arg(long)]
+    times: bool,
+
+    /// Print the step number for the selected frames to standard output.
+    ///
+    /// If both `times` and `steps` are active, they will be separated by tabs and printed in that order.
+    #[arg(long)]
+    steps: bool,
 }
 
 fn main() -> std::io::Result<()> {
@@ -99,6 +109,8 @@ fn main() -> std::io::Result<()> {
         &frame_selection,
         &atom_selection,
         args.reverse,
+        args.times,
+        args.steps,
     )
 }
 
@@ -109,6 +121,8 @@ fn filter_frames(
     frame_selection: &FrameSelection,
     atom_selection: &AtomSelection,
     reversed: bool,
+    times: bool,
+    steps: bool,
 ) -> std::io::Result<()> {
     let mut scratch = Vec::new();
     let offsets = reader.determine_offsets(frame_selection.until())?;
@@ -120,6 +134,7 @@ fn filter_frames(
             enumerated.collect()
         }
     };
+    let mut stdout = std::io::stdout();
     let mut frame = Frame::default();
     for (idx, &offset) in enumerated_offsets {
         match frame_selection.is_included(idx) {
@@ -134,6 +149,19 @@ fn filter_frames(
 
         // Start of by reading the header.
         let header = reader.read_header()?;
+
+        if times || steps {
+            if times {
+                write!(stdout, "{:.3}\t", header.time)?;
+            }
+
+            if steps {
+                write!(stdout, "{}", header.step)?;
+            }
+
+            writeln!(stdout, "")?;
+            continue;
+        }
 
         // Now, we read the atoms.
         let natoms_frame = header.natoms; // The number of atoms specified for the frame.
