@@ -4,8 +4,6 @@ use std::io::{self, Read, Seek, SeekFrom};
 use crate::padding;
 use crate::reader::{read_opaque, read_u32};
 
-pub type UnBuffered<'s> = &'s [u8];
-
 pub trait Buffered<'s, 'r, R>: Sized {
     const MIN_BUFFERED_SIZE: usize = 0x500000;
     const BLOCK_SIZE: usize = 0x20000;
@@ -32,6 +30,9 @@ pub trait Buffered<'s, 'r, R>: Sized {
     /// In that case something is seriously wrong anyway.
     fn fetch(&mut self, index: usize) -> u8;
 
+    /// Returns the byte position of the reader.
+    fn tell(&self) -> io::Result<usize>;
+
     /// Finish will eat your reader, leaving it at the start of the next frame, and then drops it.
     ///
     /// For an implementation that relies on [`std::io::Seek`] ([`Buffer`] in our case), this
@@ -50,7 +51,11 @@ pub(crate) struct Buffer<'s, 'r> {
     /// Points to the next unread/unfilled byte in `scratch`.
     ///
     /// The starting point for reading bytes from `reader` into `scratch`.
-    idx: usize,
+    idx: usize, // TODO: Consider renaming this field.
+    /// Points to the last-most byte that has been read.
+    ///
+    /// If `head` < `index` during a `fetch`, `head` is set to `index`.
+    head: usize,
     reader: &'r mut File,
     // TODO(buffered): Add some notion of a 'rich' heuristic. For instance, if we know there are
     // 1000 atoms, and we only want to read up until the 500th atom, we can pretty safely assume
@@ -98,6 +103,7 @@ impl<'s, 'r> Buffered<'s, 'r, File> for Buffer<'s, 'r> {
         let mut buffer = Self {
             scratch,
             idx: 0,
+            head: 0,
             reader,
         };
 
@@ -112,10 +118,11 @@ impl<'s, 'r> Buffered<'s, 'r, File> for Buffer<'s, 'r> {
 
     #[inline(always)]
     fn fetch(&mut self, index: usize) -> u8 {
+        let size = self.size();
+        // TODO: Consider making this a hard assert if the runtime cost is small.
         debug_assert!(
-            index < self.size(),
+            index < size,
             "index ({index}) must be within the defined range of the scratch buffer (..{size})",
-            size = self.size()
         );
 
         // If we're out of bytes, we'll have to read new ones.
@@ -129,7 +136,14 @@ impl<'s, 'r> Buffered<'s, 'r, File> for Buffer<'s, 'r> {
             self.read_to_include(index).unwrap();
         }
 
+        if index > self.head {
+            self.head = index
+        }
         self.scratch[index]
+    }
+
+    fn tell(&self) -> io::Result<usize> {
+        Ok(self.head.saturating_sub(1))
     }
 
     fn finish(self) -> io::Result<()> {
@@ -138,20 +152,32 @@ impl<'s, 'r> Buffered<'s, 'r, File> for Buffer<'s, 'r> {
     }
 }
 
+pub struct UnBuffered<'s> {
+    head: usize,
+    scratch: &'s [u8],
+}
+
 /// A fallback non-buffered implementation in case [`std::io::Seek`] is not available for `R`.
 impl<'s, 'r, R: Read> Buffered<'s, 'r, R> for UnBuffered<'s> {
     fn new(scratch: &'s mut Vec<u8>, reader: &'r mut R) -> io::Result<Self> {
         read_opaque(reader, scratch)?;
-        Ok(scratch)
+        Ok(Self { head: 0, scratch })
     }
 
     fn fetch(&mut self, index: usize) -> u8 {
-        debug_assert!(
-            index < self.len(),
+        let size = self.scratch.len();
+        assert!(
+            index < size,
             "index ({index}) must be within the defined range of the scratch buffer (..{size})",
-            size = self.len()
         );
-        self[index]
+        if index > self.head {
+            self.head = index
+        }
+        self.scratch[index]
+    }
+
+    fn tell(&self) -> io::Result<usize> {
+        Ok(self.head.saturating_sub(1))
     }
 
     fn finish(self) -> io::Result<()> {
