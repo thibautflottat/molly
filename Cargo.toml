@@ -6,8 +6,17 @@ authors = ["Marieke Westendorp <ma3ke.cyber@gmail.com>"]
 description = "A fast reader for the xtc file format"
 repository = "https://git.sr.ht/~ma3ke/molly"
 
+[lib]
+name = "molly"
+path = "src/lib.rs"
+
+[[bin]]
+name = "molly"
+path = "src/main.rs"
+
 [dependencies]
 glam = "0.25.0"
+clap = { version = "4.5.4", features = ["derive"] }
 
 [dev-dependencies]
 chemfiles = "0.10.41"
