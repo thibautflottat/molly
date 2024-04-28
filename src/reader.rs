@@ -3,7 +3,6 @@ use std::io::{self, Read};
 use crate::{buffer::Buffered, padding, selection::AtomSelection, BoxVec};
 
 struct DecodeState {
-    count: usize,
     lastbits: usize,
     lastbyte: u8,
 }
@@ -80,7 +79,6 @@ pub fn read_compressed_positions<'s, 'r, B: Buffered<'s, 'r, R>, R: Read>(
     let mut buffer = B::new(scratch, file)?;
 
     let mut state = DecodeState {
-        count: 0,
         lastbits: 0,
         lastbyte: 0,
     };
@@ -324,7 +322,6 @@ fn decodebyte<'s, 'r, R>(buf: &mut impl Buffered<'s, 'r, R>, state: &mut DecodeS
     let mask = 0xff;
 
     let DecodeState {
-        mut count,
         mut lastbits,
         lastbyte,
     } = *state;
@@ -333,8 +330,7 @@ fn decodebyte<'s, 'r, R>(buf: &mut impl Buffered<'s, 'r, R>, state: &mut DecodeS
     let mut num = 0;
     let mut nbits = 8;
     while nbits >= 8 {
-        lastbyte = (lastbyte << 8) | buf.fetch(count) as u32;
-        count += 1;
+        lastbyte = (lastbyte << 8) | buf.pop() as u32;
         num |= (lastbyte >> lastbits) << (nbits - 8);
         nbits -= 8;
     }
@@ -342,8 +338,7 @@ fn decodebyte<'s, 'r, R>(buf: &mut impl Buffered<'s, 'r, R>, state: &mut DecodeS
     if nbits > 0 {
         if lastbits < nbits {
             lastbits += 8;
-            lastbyte = (lastbyte << 8) | buf.fetch(count) as u32;
-            count += 1;
+            lastbyte = (lastbyte << 8) | buf.pop() as u32;
         }
         lastbits -= nbits;
         num |= (lastbyte >> lastbits) & mask;
@@ -351,7 +346,6 @@ fn decodebyte<'s, 'r, R>(buf: &mut impl Buffered<'s, 'r, R>, state: &mut DecodeS
 
     num &= mask;
     *state = DecodeState {
-        count,
         lastbits,
         lastbyte: (lastbyte & 0xff) as u8, // We don't care about anything but the last byte.
     };
@@ -368,7 +362,6 @@ fn decodebits<'s, 'r, T: TryFrom<u32>, R: Read>(
     let mask = (1 << nbits) - 1; // A string of ones that is nbits long.
 
     let DecodeState {
-        mut count,
         mut lastbits,
         lastbyte,
     } = *state;
@@ -376,8 +369,7 @@ fn decodebits<'s, 'r, T: TryFrom<u32>, R: Read>(
 
     let mut num = 0;
     while nbits >= 8 {
-        lastbyte = (lastbyte << 8) | buf.fetch(count) as u32;
-        count += 1;
+        lastbyte = (lastbyte << 8) | buf.pop() as u32;
         num |= (lastbyte >> lastbits) << (nbits - 8);
         nbits -= 8;
     }
@@ -385,8 +377,7 @@ fn decodebits<'s, 'r, T: TryFrom<u32>, R: Read>(
     if nbits > 0 {
         if lastbits < nbits {
             lastbits += 8;
-            lastbyte = (lastbyte << 8) | buf.fetch(count) as u32;
-            count += 1;
+            lastbyte = (lastbyte << 8) | buf.pop() as u32;
         }
         lastbits -= nbits;
         num |= (lastbyte >> lastbits) & mask;
@@ -394,7 +385,6 @@ fn decodebits<'s, 'r, T: TryFrom<u32>, R: Read>(
 
     num &= mask;
     *state = DecodeState {
-        count,
         lastbits,
         lastbyte: (lastbyte & 0xff) as u8, // We don't care about anything but the last byte.
     };

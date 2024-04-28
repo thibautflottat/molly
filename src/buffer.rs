@@ -22,13 +22,13 @@ pub trait Buffered<'s, 'r, R>: Sized {
     // reference to it dissolves.
     fn new(scratch: &'s mut Vec<u8>, reader: &'r mut R) -> io::Result<Self>;
 
-    /// Get a byte at some index.
+    /// Pop a byte from the buffer.
     ///
     /// # Panics
     ///
     /// If the `index` exceeds the number of bytes this [`Buffer`] can read, this function panics.
     /// In that case something is seriously wrong anyway.
-    fn fetch(&mut self, index: usize) -> u8;
+    fn pop(&mut self) -> u8;
 
     /// Returns the byte position of the reader.
     fn tell(&self) -> io::Result<usize>;
@@ -53,8 +53,6 @@ pub struct Buffer<'s, 'r> {
     /// The starting point for reading bytes from `reader` into `scratch`.
     idx: usize, // TODO: Consider renaming this field.
     /// Points to the last-most byte that has been read.
-    ///
-    /// If `head` < `index` during a `fetch`, `head` is set to `index`.
     head: usize,
     reader: &'r mut File,
     // TODO(buffered): Add some notion of a 'rich' heuristic. For instance, if we know there are
@@ -117,29 +115,20 @@ impl<'s, 'r> Buffered<'s, 'r, File> for Buffer<'s, 'r> {
     }
 
     #[inline(always)]
-    fn fetch(&mut self, index: usize) -> u8 {
-        let size = self.size();
-        // TODO: Consider making this a hard assert if the runtime cost is small.
-        debug_assert!(
-            index < size,
-            "index ({index}) must be within the defined range of the scratch buffer (..{size})",
-        );
-
+    fn pop(&mut self) -> u8 {
         // If we're out of bytes, we'll have to read new ones.
         // NOTE: This branch is pretty much singularly responsible for the performance difference
         // between unbuffered and buffered decompression (cf. the impl of this function for
         // `UnBuffered`).
-        if index >= self.idx {
+        let head = self.head;
+        if head >= self.idx {
             // FIXME(buffered): For now, let's just fuck this up with a terrible unwrap here.
             // Gotta change this to be io::Result at some point? If we can muster the perf hit
             // at least...
-            self.read_to_include(index).unwrap();
+            self.read_to_include(head).unwrap();
         }
-
-        if index > self.head {
-            self.head = index
-        }
-        self.scratch[index]
+        self.head += 1;
+        self.scratch[head]
     }
 
     fn tell(&self) -> io::Result<usize> {
@@ -164,16 +153,16 @@ impl<'s, 'r, R: Read> Buffered<'s, 'r, R> for UnBuffered<'s> {
         Ok(Self { head: 0, scratch })
     }
 
-    fn fetch(&mut self, index: usize) -> u8 {
+    #[inline(always)]
+    fn pop(&mut self) -> u8 {
+        let head = self.head;
         let size = self.scratch.len();
         assert!(
-            index < size,
-            "index ({index}) must be within the defined range of the scratch buffer (..{size})",
+            head < size,
+            "a pop may not be done with the head ({head}) outside the defined range of the scratch buffer (..{size})",
         );
-        if index > self.head {
-            self.head = index
-        }
-        self.scratch[index]
+        self.head += 1;
+        self.scratch[head]
     }
 
     fn tell(&self) -> io::Result<usize> {
