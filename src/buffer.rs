@@ -5,9 +5,6 @@ use crate::padding;
 use crate::reader::{read_opaque, read_u32};
 
 pub trait Buffered<'s, 'r, R>: Sized {
-    const MIN_BUFFERED_SIZE: usize = 0x500000;
-    const BLOCK_SIZE: usize = 0x20000;
-
     // TODO(buffered): Consider giving the n_bytes from the outside?
     /// Create a new [`Buffer`] reader.
     ///
@@ -61,6 +58,9 @@ pub struct Buffer<'s, 'r> {
 }
 
 impl Buffer<'_, '_> {
+    const BLOCK_SIZE: usize = 0x20000;
+    const MIN_BUFFERED_SIZE: usize = 2 * Self::BLOCK_SIZE;
+
     /// Returns the size of this [`Buffer`].
     const fn size(&self) -> usize {
         self.scratch.len()
@@ -74,7 +74,7 @@ impl Buffer<'_, '_> {
     /// Read enough bytes such that `index` points to a valid byte.
     #[cold]
     fn read_to_include(&mut self, index: usize) -> io::Result<()> {
-        while self.front <= index {
+        while index >= self.front {
             // TODO(buffered): Consider dealing with n_bytes == 0 indicating eof.
             // Read a bunch of bytes limited by the size of the scratch buffer and BLOCK_SIZE.
             // We would rather do a couple more smaller reads (BLOCK_SIZE) than one big one that
@@ -82,11 +82,6 @@ impl Buffer<'_, '_> {
             let until = usize::min(self.size(), index + Self::BLOCK_SIZE);
             self.front += self.reader.read(&mut self.scratch[self.front..until])?;
         }
-        assert!(
-            index < self.front,
-            "index ({index}) must be within than the defined valid range (..{valid})",
-            valid = self.front
-        );
         Ok(())
     }
 }
@@ -109,6 +104,7 @@ impl<'s, 'r> Buffered<'s, 'r, File> for Buffer<'s, 'r> {
         // at once, right here.
         if buffer.scratch.len() <= Self::MIN_BUFFERED_SIZE {
             buffer.read_to_include(count.saturating_sub(1))?;
+            assert_eq!(buffer.size(), buffer.front)
         }
 
         Ok(buffer)
