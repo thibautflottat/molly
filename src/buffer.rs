@@ -72,6 +72,11 @@ impl Buffer<'_, '_> {
     }
 
     /// Read enough bytes such that `index` points to a valid byte.
+    ///
+    /// After this function completes successfully, we can guarantee the following:
+    ///
+    /// - `index` < `self.front`, because of the inverse condition in the while loop.
+    /// - Values before `self.front` are loaded with valid values from the reader.
     #[cold]
     fn read_to_include(&mut self, index: usize) -> io::Result<()> {
         while index >= self.front {
@@ -82,6 +87,7 @@ impl Buffer<'_, '_> {
             let until = usize::min(self.size(), index + Self::BLOCK_SIZE);
             self.front += self.reader.read(&mut self.scratch[self.front..until])?;
         }
+        assert!(index < self.front); // Already proven by the while loop, but let's double-check :)
         Ok(())
     }
 }
@@ -124,7 +130,9 @@ impl<'s, 'r> Buffered<'s, 'r, File> for Buffer<'s, 'r> {
             self.read_to_include(head).unwrap();
         }
         self.head += 1;
-        self.scratch[head]
+        // Safety: We know that `head < self.front`, and that values before `self.front` are valid
+        // and will exist. These guarantees are upheld and asserted in `read_to_include`.
+        unsafe { *self.scratch.get_unchecked(head) }
     }
 
     fn tell(&self) -> usize {
