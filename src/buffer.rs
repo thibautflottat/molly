@@ -41,7 +41,7 @@ pub trait Buffered<'s, 'r, R>: Sized {
 }
 
 /// A specialized buffered reader for the compressed datastream.
-pub(crate) struct Buffer<'s, 'r> {
+pub struct Buffer<'s, 'r> {
     /// Internal scratch buffer to read into.
     ///
     /// # Warning
