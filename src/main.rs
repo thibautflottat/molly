@@ -142,7 +142,7 @@ fn filter_frames(
                 )?,
             };
             reader.step += 1;
-            nbytes + 1 // TODO: Investigate how we can better document this off-by-one.
+            nbytes
         };
 
         // The number of atoms we are actually interested in for our output. Important to know

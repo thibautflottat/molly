@@ -31,7 +31,7 @@ pub trait Buffered<'s, 'r, R>: Sized {
     fn pop(&mut self) -> u8;
 
     /// Returns the byte position of the reader.
-    fn tell(&self) -> io::Result<usize>;
+    fn tell(&self) -> usize;
 
     /// Finish will eat your reader, leaving it at the start of the next frame, and then drops it.
     ///
@@ -131,8 +131,8 @@ impl<'s, 'r> Buffered<'s, 'r, File> for Buffer<'s, 'r> {
         self.scratch[head]
     }
 
-    fn tell(&self) -> io::Result<usize> {
-        Ok(self.head.saturating_sub(1))
+    fn tell(&self) -> usize {
+        self.head
     }
 
     fn finish(self) -> io::Result<()> {
@@ -165,8 +165,8 @@ impl<'s, 'r, R: Read> Buffered<'s, 'r, R> for UnBuffered<'s> {
         self.scratch[head]
     }
 
-    fn tell(&self) -> io::Result<usize> {
-        Ok(self.head.saturating_sub(1))
+    fn tell(&self) -> usize {
+        self.head
     }
 
     fn finish(self) -> io::Result<()> {
