@@ -199,9 +199,12 @@ pub fn read_compressed_positions<'s, 'r, B: Buffered<'s, 'r, R>, R: Read>(
         read_idx += 1;
     }
 
+    // The number of bytes that were read during decompression. Since we get the position, we add
+    // one to get the number of bytes. (At position 4, the bytes 0..=4 were read, so 4+1=5 bytes.
+    let nbytes = buffer.tell()? + 1;
     buffer.finish()?;
 
-    Ok(read_idx)
+    Ok(nbytes)
 }
 
 #[inline]
