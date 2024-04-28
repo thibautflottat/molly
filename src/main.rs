@@ -78,9 +78,16 @@ struct Args {
 
     /// Write the trajectory in reverse.
     ///
-    /// Selection functions the same regardless of whether this flag is set.
-    #[arg(long)]
+    /// The direction of the selection is unaffected by this flag. To also reverse the frame
+    /// selection, use `--reverse-frame-selection`.
+    #[arg(long, short = 'r')]
     reverse: bool,
+
+    /// Reverse the frame selection.
+    ///
+    /// Can be used independent of whether `--reverse` is set.
+    #[arg(long, short = 'R')]
+    reverse_frame_selection: bool,
 
     /// Print the time value for the selected frames to standard output.
     #[arg(long)]
@@ -109,6 +116,7 @@ fn main() -> std::io::Result<()> {
         &frame_selection,
         &atom_selection,
         args.reverse,
+        args.reverse_frame_selection,
         args.times,
         args.steps,
     )
@@ -121,26 +129,46 @@ fn filter_frames(
     frame_selection: &FrameSelection,
     atom_selection: &AtomSelection,
     reversed: bool,
+    reverse_frame_selection: bool,
     times: bool,
     steps: bool,
 ) -> std::io::Result<()> {
     let mut scratch = Vec::new();
-    let offsets = reader.determine_offsets(frame_selection.until())?;
-    let enumerated_offsets: Vec<_> = {
-        let enumerated = offsets.iter().enumerate();
-        if reversed {
-            enumerated.rev().collect()
-        } else {
-            enumerated.collect()
-        }
+
+    let until = if reversed || reverse_frame_selection {
+        None
+    } else {
+        frame_selection.until()
     };
+    let mut offsets = reader.determine_offsets(until)?;
+    let mut range: Box<[usize]> = (0..offsets.len()).collect();
+    let enumerated_offsets = {
+        // Reversing the frame order and reversing the frame selection have some non-obvious
+        // interplays.
+        match (reversed, reverse_frame_selection) {
+            (true, true) => {
+                offsets.reverse();
+            }
+            (true, false) => {
+                offsets.reverse();
+                range.reverse();
+            }
+            (false, true) => {
+                range.reverse();
+            }
+            (false, false) => {}
+        }
+        range.into_iter().zip(offsets.into_iter().copied())
+    };
+
     let mut stdout = std::io::stdout();
     let mut frame = Frame::default();
-    for (idx, &offset) in enumerated_offsets {
+    for (&idx, offset) in enumerated_offsets {
         match frame_selection.is_included(idx) {
             Some(true) => {}
             Some(false) => continue,
-            None if !reversed => continue, // If we are reversed, we can't just stop early.
+            // If we are reversed in some way, we can't just stop early.
+            None if reversed || reverse_frame_selection => continue,
             None => break,
         }
 
