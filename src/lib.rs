@@ -343,20 +343,25 @@ impl XTCReader<File> {
         let mut offsets = Vec::new();
 
         while until.map_or(true, |until| offsets.len() < until) {
-            match read_i32(file) {
-                Ok(MAGIC) => {}
-                Ok(weird) => Err(io::Error::other(format!(
-                    "found invalid magic number '{weird}' ({weird:#0x})"
-                )))?,
+            let header = match Header::read(file) {
+                Ok(header) => header,
                 Err(err) if err.kind() == io::ErrorKind::UnexpectedEof => break,
                 Err(err) => Err(err)?,
             };
-            file.seek(SeekFrom::Current(84))?;
-            let skip: u64 = read_i32(file)?
-                .try_into()
-                .map_err(|err| io::Error::other(format!("could not read frame size: {err}")))?;
-            let pad = padding(skip as usize);
-            let offset = file.seek(SeekFrom::Current(skip as i64 + pad as i64))?;
+
+            let skip = if header.natoms <= 9 {
+                // Know how many bytes are in this frame until the next header since the positions
+                // are uncompressed.
+                header.natoms as u64 * 3 * 4
+            } else {
+                // We need to read the nbytes value to get the offset until the next header.
+                file.seek(SeekFrom::Current(32))?;
+                let nbytes: u64 = read_i32(file)?
+                    .try_into()
+                    .map_err(|err| io::Error::other(format!("could not read frame size: {err}")))?;
+                nbytes + padding(nbytes as usize) as u64
+            };
+            let offset = file.seek(SeekFrom::Current(skip as i64))?;
             offsets.push(offset);
         }
 
