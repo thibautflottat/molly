@@ -204,7 +204,7 @@ impl Range {
     /// the last index before the `end`, taking the value of `step` into account.
     pub fn last(&self) -> Option<usize> {
         self.end.map(|end| {
-            let length = end - self.start;
+            let length = end.saturating_sub(self.start);
             let remainder = length % self.step;
             (end - remainder) as usize
         })
