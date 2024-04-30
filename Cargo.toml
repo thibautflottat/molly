@@ -6,6 +6,7 @@ authors = ["Marieke Westendorp <ma3ke.cyber@gmail.com>"]
 repository = "https://git.sr.ht/~ma3ke/molly"
 exclude = ["tests/trajectories"]
 keywords = ["molecular-dynamics", "gromacs", "xtc"]
+license = "MIT"
 categories = ["science", "parser-implementations"]
 description = "A fast reader for the xtc file format"
 
