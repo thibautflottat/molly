@@ -141,7 +141,8 @@ impl FrameSelection {
 /// # Note
 ///
 /// An instance where `start` > `end` is a valid `Selection`, but it will not make much sense,
-/// since the `Selection` will be understood to produce zero steps.
+/// since the `Selection` will be understood to produce zero steps. This case will trigger a
+/// `debug_assert`.
 #[derive(Debug, Clone, Copy)]
 pub struct Range {
     /// The `start` of a [`Selection`] is always bounded, and is zero by default.
@@ -171,6 +172,15 @@ impl Range {
         if let Some(step) = step {
             sel.step = step;
         }
+
+        if let Some(end) = sel.end {
+            let start = sel.start;
+            debug_assert!(
+                start <= end,
+                "the start of a selection ({start}) may not exceed the end ({end})"
+            );
+        }
+
         sel
     }
 
