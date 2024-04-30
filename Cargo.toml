@@ -3,8 +3,10 @@ name = "molly"
 version = "0.1.0"
 edition = "2021"
 authors = ["Marieke Westendorp <ma3ke.cyber@gmail.com>"]
-description = "A fast reader for the xtc file format"
 repository = "https://git.sr.ht/~ma3ke/molly"
+keywords = ["molecular-dynamics", "gromacs", "xtc"]
+categories = ["science", "parser-implementations"]
+description = "A fast reader for the xtc file format"
 
 [lib]
 name = "molly"
