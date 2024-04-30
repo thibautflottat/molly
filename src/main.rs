@@ -16,10 +16,19 @@ use molly::{padding, read_positions, Frame, Header, XTCReader};
 
 fn frame_selection_parser(selection: &str) -> Result<FrameSelection, ParseIntError> {
     let mut components = selection.split(':');
-    let start = components.next().map(|s| s.parse()).transpose()?;
-    let end = components.next().map(|s| s.parse()).transpose()?;
+    let start = components
+        .next()
+        .and_then(|s| if s.is_empty() { None } else { Some(s) })
+        .map(|s| s.parse())
+        .transpose()?;
+    let end = components
+        .next()
+        .and_then(|s| if s.is_empty() { None } else { Some(s) })
+        .map(|s| s.parse())
+        .transpose()?;
     let step = components
         .next()
+        .and_then(|s| if s.is_empty() { None } else { Some(s) })
         .map(|s| NonZeroU64::from_str(s))
         .transpose()?;
     Ok(FrameSelection::Range(Range::new(start, end, step)))
