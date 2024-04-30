@@ -42,7 +42,11 @@ fn atom_selection_parser(selection: &str) -> Result<AtomSelection, ParseIntError
 // TODO: Consider making this one of several subcommands. This one could be called something like
 // `molly filter ...`. Another would be `molly info` or `molly summary` or something.
 /// Filter an xtc trajectory according to frame and atom selections.
+///
+/// By Marieke Westendorp, 2024.
+/// <ma3ke.cyber@gmail.com>
 #[derive(Parser)]
+#[command(version)]
 struct Args {
     /// Input path (xtc).
     input: PathBuf,
