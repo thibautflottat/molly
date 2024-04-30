@@ -240,13 +240,10 @@ fn filter_frames(
             if args.times {
                 write!(stdout, "{:.3}\t", header.time)?;
             }
-
             if args.steps {
                 write!(stdout, "{}", header.step)?;
             }
-
             writeln!(stdout, "")?;
-            continue;
         }
 
         // Now, we read the atoms.
