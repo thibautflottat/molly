@@ -3,7 +3,7 @@
 //! By Marieke Westendorp, 2024.
 //! <ma3ke.cyber@gmail.com>
 use std::fs::File;
-use std::io::{BufWriter, Read, Seek, SeekFrom, Write};
+use std::io::{self, BufWriter, Read, Seek, SeekFrom, Write};
 use std::num::{NonZeroU64, ParseIntError};
 use std::path::PathBuf;
 use std::str::FromStr;
@@ -38,6 +38,20 @@ struct Args {
     /// Input path (xtc).
     input: PathBuf,
 
+    #[command(flatten)]
+    write: Option<WriteArgs>,
+
+    /// Print a summary of the trajectory to standard output and exit.
+    ///
+    /// Conflicts with any options for writing.
+    ///
+    /// Currently, selections have no effect on the info displayed.
+    #[arg(long, conflicts_with = "WriteArgs")]
+    info: bool,
+}
+
+#[derive(Parser)]
+struct WriteArgs {
     /// Output path (xtc).
     output: PathBuf,
 
@@ -103,39 +117,74 @@ struct Args {
 fn main() -> std::io::Result<()> {
     let args = Args::parse();
 
-    let mut writer = BufWriter::new(std::fs::File::create(args.output)?);
-    let file = std::fs::File::open(args.input)?;
+    let file = std::fs::File::open(&args.input)?;
     let mut reader = XTCReader::new(file);
 
-    let frame_selection = args.frame_selection.unwrap_or_default();
-    let atom_selection = args.atom_selection.unwrap_or_default();
-    filter_frames(
-        &mut reader,
-        args.is_buffered,
-        &mut writer,
-        &frame_selection,
-        &atom_selection,
-        args.reverse,
-        args.reverse_frame_selection,
-        args.times,
-        args.steps,
-    )
+    if args.info {
+        let offsets = reader.determine_offsets(None)?;
+        let name = args
+            .input
+            .file_name()
+            .and_then(|name| name.to_str())
+            .unwrap_or_default();
+        println!("name:    {name}",);
+        println!("path:    {:?}", &args.input);
+        println!("nframes: {}", offsets.len());
+        let headers = offsets
+            .iter()
+            .map(|&offset| -> io::Result<Header> {
+                reader.file.seek(SeekFrom::Start(offset))?;
+                reader.read_header()
+            })
+            .collect::<io::Result<Vec<_>>>()?;
+        let natoms = headers
+            .first()
+            .map(|header| header.natoms.to_string())
+            .unwrap_or("?".to_string());
+        println!("natoms:  {natoms}");
+        let (first, last) = (headers.first(), headers.last());
+
+        let first_step = first.map(|header| header.step);
+        let last_step = last.map(|header| header.step);
+        let steps = match (first_step, last_step) {
+            (None, None) => "?".to_string(),
+            (None, Some(_)) => unreachable!(),
+            (Some(first), None) => first.to_string(),
+            (Some(first), Some(last)) => format!("{first}-{last}"),
+        };
+        println!("steps:   {steps}");
+
+        let first_time = first.map(|header| header.time);
+        let last_time = last.map(|header| header.time);
+        let times = match (first_time, last_time) {
+            (None, None) => "?".to_string(),
+            (None, Some(_)) => unreachable!(),
+            (Some(first), None) => first.to_string(),
+            (Some(first), Some(last)) => format!("{first}-{last}"),
+        };
+        println!("time:    {times} ns");
+
+        return Ok(());
+    }
+
+    let write = args
+        .write
+        .expect("write arguments must be available if --info is not passed");
+    let mut writer = BufWriter::new(std::fs::File::create(&write.output)?);
+    filter_frames(&mut reader, &mut writer, write)
 }
 
 fn filter_frames(
     reader: &mut XTCReader<File>,
-    is_buffered: bool,
     writer: &mut BufWriter<File>,
-    frame_selection: &FrameSelection,
-    atom_selection: &AtomSelection,
-    reversed: bool,
-    reverse_frame_selection: bool,
-    times: bool,
-    steps: bool,
+    args: WriteArgs,
 ) -> std::io::Result<()> {
     let mut scratch = Vec::new();
 
-    let until = if reversed || reverse_frame_selection {
+    let frame_selection = args.frame_selection.unwrap_or_default();
+    let atom_selection = args.atom_selection.unwrap_or_default();
+
+    let until = if args.reverse || args.reverse_frame_selection {
         None
     } else {
         frame_selection.until()
@@ -145,7 +194,7 @@ fn filter_frames(
     let enumerated_offsets = {
         // Reversing the frame order and reversing the frame selection have some non-obvious
         // interplays.
-        match (reversed, reverse_frame_selection) {
+        match (args.reverse, args.reverse_frame_selection) {
             (true, true) => {
                 offsets.reverse();
             }
@@ -168,7 +217,7 @@ fn filter_frames(
             Some(true) => {}
             Some(false) => continue,
             // If we are reversed in some way, we can't just stop early.
-            None if reversed || reverse_frame_selection => continue,
+            None if args.reverse || args.reverse_frame_selection => continue,
             None => break,
         }
 
@@ -178,12 +227,12 @@ fn filter_frames(
         // Start of by reading the header.
         let header = reader.read_header()?;
 
-        if times || steps {
-            if times {
+        if args.times || args.steps {
+            if args.times {
                 write!(stdout, "{:.3}\t", header.time)?;
             }
 
-            if steps {
+            if args.steps {
                 write!(stdout, "{}", header.step)?;
             }
 
@@ -196,22 +245,22 @@ fn filter_frames(
         let nbytes = if natoms_frame <= 9 {
             // In this case, the positions are uncompressed. Each consists of three f32s, so we're
             // done pretty quickly.
-            reader.read_smol_positions(natoms_frame, &mut frame, atom_selection)?
+            reader.read_smol_positions(natoms_frame, &mut frame, &atom_selection)?
         } else {
-            let nbytes = match is_buffered {
+            let nbytes = match args.is_buffered {
                 false => read_positions::<UnBuffered, File>(
                     &mut reader.file,
                     natoms_frame,
                     &mut scratch,
                     &mut frame,
-                    atom_selection,
+                    &atom_selection,
                 )?,
                 true => read_positions::<Buffer, File>(
                     &mut reader.file,
                     natoms_frame,
                     &mut scratch,
                     &mut frame,
-                    atom_selection,
+                    &atom_selection,
                 )?,
             };
             reader.step += 1;
