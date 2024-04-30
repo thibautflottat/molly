@@ -19,21 +19,63 @@
 
 A reader for the Gromacs [xtc file format][xtc] implemented in pure Rust.
 
-_molly_ tries to decompress or even read the minimal number of bytes. To this
-end, the library features extensive selection methods for **frames** within a
+_molly_ tries to decompress and read the minimal number of bytes. To this end,
+the library features extensive selection methods for **frames** within a
 trajectory and **atoms** within each frame. This selection allows for some
 exciting optimizations. Only the necessary positions are decompressed.
 Similarly, there are circumstances under which only a limited number of
-compressed bytes are read in the first place.
-This is particularly powerful in applications where a subset of positions at
-the top-end of the frame is selected in a large trajectory. Such buffered
-reading can be very beneficial when disk read speed is particularly poor, such
-as over networked file storage.
+compressed bytes are read in the first place. This is particularly powerful in
+applications where a subset of positions at the top-end of the frame is
+selected in a large trajectory. Such buffered reading can be very beneficial
+when disk read speed is particularly poor, such as over networked file storage.
 
 For convenient use in existing analysis tools, _molly_ exposes a set of
 bindings that allow access to its functions from Python.
 
+_molly_ can also be installed as a command line tool for shortening and
+filtering xtc files.
+
 ## Installation
+
+### Command line application
+
+```console
+cargo install --git 'https://git.sr.ht/~ma3ke/molly'
+```
+
+#### Usage
+
+With the _molly_ command, xtc files can be filtered and shortened. Selections
+can be made on frames as well as the atoms within the frames.
+
+- Frames can be selected with the `-f`/`--frame-selection` option, using
+  `start:stop:step` ranges, which operate much like ranges in Python.
+- The first _n_ atoms can be selected with the `-a`/`--atom-selection` option.
+
+Here is a short showcase of possible uses.
+
+```sh
+# List all options.
+molly --help
+
+# Print a summary of a trajectory to standard out.
+molly --info big.xtc
+
+# Trajectories can be filtered in a number of ways. Here are a few combinations.
+# Select the 100th to the 600th frame in steps of two. From those, store only the first 161 atoms.
+molly big.xtc out.xtc --frame-selection 100:600:2 --atom-selection 161
+molly big.xtc out.xtc -f 100:600:2 -a 161  # With shorter arguments.
+
+# Reverse a selection. Here we use it to select the last frame.
+molly big.xtc last.xtc --reverse-frame-selection --frame-selection :1
+molly big.xtc last.xtc -Rf :1  # With shorter arguments.
+
+# Reverse a trajectory.
+molly big.xtc rev.xtc --reverse
+
+# For any of these filtering commands, the frame times and steps can be written to standard out.
+molly big.xtc rev_last_ten.xtc -rRf :10 --steps --times
+```
 
 ### As a library
 
