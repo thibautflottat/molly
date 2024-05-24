@@ -1,3 +1,4 @@
+use std::collections::BTreeSet;
 use std::num::NonZeroU64;
 
 // Invariant: The selection is only valid if the frame it reads them into is appropriately sized.
@@ -92,7 +93,7 @@ pub enum FrameSelection {
     /// Include frames that match the indices in this list.
     ///
     /// Invariant: The indices in the FrameList are _unique_ and _consecutive_.
-    FrameList(Vec<usize>),
+    FrameList(BTreeSet<usize>),
 }
 
 impl FrameSelection {
@@ -107,7 +108,7 @@ impl FrameSelection {
                 if *indices.last()? < idx {
                     None
                 } else {
-                    Some(indices.contains(&idx)) // TODO: This may be a very bad thing.
+                    Some(indices.contains(&idx))
                 }
             }
         }
@@ -232,8 +233,8 @@ mod tests {
 
         #[test]
         fn zero_selection() {
-            let list_empty = FrameSelection::FrameList(vec![]);
-            let list_zero = FrameSelection::FrameList(vec![0]);
+            let list_empty = FrameSelection::FrameList(BTreeSet::new());
+            let list_zero = FrameSelection::FrameList(BTreeSet::from_iter([0]));
             let range_empty = FrameSelection::Range(Range::new(None, Some(0), None));
 
             for idx in 0..1000 {
