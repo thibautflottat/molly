@@ -1,5 +1,3 @@
-#![feature(iter_array_chunks)]
-
 use chemfiles::Trajectory;
 use molly::XTCReader;
 
