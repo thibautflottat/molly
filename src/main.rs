@@ -220,7 +220,7 @@ fn filter_frames(
             }
             (false, false) => {}
         }
-        range.into_iter().zip(offsets.into_iter().copied())
+        range.iter().zip(offsets.iter().copied())
     };
 
     let mut stdout = std::io::stdout();
