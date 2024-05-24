@@ -53,7 +53,10 @@ impl FromPyObject<'_> for FrameSelection {
             }
         }
 
-        Err(PyTypeError::new_err("Cannot select frames with this type"))
+        Err(PyTypeError::new_err(format!(
+            "Cannot select frames with this type: {}",
+            ob.get_type()
+        )))
     }
 }
 
