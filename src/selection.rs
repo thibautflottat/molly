@@ -97,6 +97,14 @@ pub enum FrameSelection {
 }
 
 impl FrameSelection {
+    /// Create a new `FrameSelection::FrameList` variant from an iterator.
+    pub fn framelist_from_iter<I>(iter: I) -> Self
+    where
+        I: IntoIterator<Item = usize>,
+    {
+        Self::FrameList(BTreeSet::from_iter(iter))
+    }
+
     /// Determine whether some index `idx` is included in this [`FrameSelection`].
     ///
     /// Will return [`None`] once the index is beyond the scope of this `FrameSelection`.
@@ -233,8 +241,8 @@ mod tests {
 
         #[test]
         fn zero_selection() {
-            let list_empty = FrameSelection::FrameList(BTreeSet::new());
-            let list_zero = FrameSelection::FrameList(BTreeSet::from_iter([0]));
+            let list_empty = FrameSelection::FrameList(Default::default());
+            let list_zero = FrameSelection::framelist_from_iter([0]);
             let range_empty = FrameSelection::Range(Range::new(None, Some(0), None));
 
             for idx in 0..1000 {

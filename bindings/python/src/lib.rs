@@ -41,15 +41,25 @@ impl FromPyObject<'_> for FrameSelection {
             return Ok(FrameSelection(selection::FrameSelection::Range(range)));
         }
 
+        if let Ok(indices) = ob.downcast::<PyList>().map_err(PyErr::from).and_then(|it| {
+            it.iter()
+                .map(|i| i.extract::<usize>())
+                .collect::<PyResult<Vec<usize>>>()
+        }) {
+            return Ok(FrameSelection(
+                selection::FrameSelection::framelist_from_iter(indices),
+            ));
+        }
+
         if let Ok(it) = ob.downcast::<PyIterator>() {
             if let Ok(indices) = it
                 .iter()?
                 .map(|i| i.and_then(PyAny::extract::<usize>))
                 .collect::<PyResult<Vec<usize>>>()
             {
-                return Ok(FrameSelection(selection::FrameSelection::FrameList(
-                    indices,
-                )));
+                return Ok(FrameSelection(
+                    selection::FrameSelection::framelist_from_iter(indices),
+                ));
             }
         }
 

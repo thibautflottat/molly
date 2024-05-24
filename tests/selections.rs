@@ -68,7 +68,6 @@ macro_rules! assert_atoms {
 }
 
 mod frame_selection {
-    use std::collections::BTreeSet;
 
     use super::*;
 
@@ -124,37 +123,37 @@ mod frame_selection {
     /// Read according to a list of indices.
     #[test]
     fn indices() -> std::io::Result<()> {
-        assert_frames!(FS::FrameList(BTreeSet::from_iter([0, 1, 500])), AS::All => 3)
+        assert_frames!(FS::framelist_from_iter([0, 1, 500]), AS::All => 3)
     }
     /// Read the first frame.
     #[test]
     fn indices_first_frame() -> std::io::Result<()> {
-        assert_frames!(FS::FrameList(BTreeSet::from_iter([0])), AS::All =>1)
+        assert_frames!(FS::framelist_from_iter([0]), AS::All =>1)
     }
     /// Read a single frame at some index.
     #[test]
     fn indices_single_frame() -> std::io::Result<()> {
-        assert_frames!(FS::FrameList(BTreeSet::from_iter([100])), AS::All => 1)
+        assert_frames!(FS::framelist_from_iter([100]), AS::All => 1)
     }
     /// Read only the last index.
     #[test]
     fn indices_last_frame() -> std::io::Result<()> {
-        assert_frames!(FS::FrameList(BTreeSet::from_iter([NFRAMES - 1])), AS::All => 1)
+        assert_frames!(FS::framelist_from_iter([NFRAMES - 1]), AS::All => 1)
     }
     /// Read just past the last index.
     #[test]
     fn indices_after_last_frame() -> std::io::Result<()> {
-        assert_frames!(FS::FrameList(BTreeSet::from_iter([NFRAMES])), AS::All => 0)
+        assert_frames!(FS::framelist_from_iter([NFRAMES]), AS::All => 0)
     }
     /// Read according to a list of indices with some beyond the last frame.
     #[test]
     fn indices_within_range_and_outside() -> std::io::Result<()> {
-        assert_frames!(FS::FrameList(BTreeSet::from_iter([0, 1, 500, NFRAMES * 2])), AS::All => 3)
+        assert_frames!(FS::framelist_from_iter([0, 1, 500, NFRAMES * 2]), AS::All => 3)
     }
     /// Read according to an empty list.
     #[test]
     fn indices_empty_list() -> std::io::Result<()> {
-        assert_frames!(FS::FrameList(BTreeSet::new()), AS::All => 0)
+        assert_frames!(FS::FrameList(Default::default()), AS::All => 0)
     }
 }
 
