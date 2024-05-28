@@ -9,6 +9,7 @@ keywords = ["molecular-dynamics", "gromacs", "xtc"]
 license = "MIT"
 categories = ["science", "parser-implementations"]
 description = "A fast reader for the xtc file format"
+rust-version = "1.74.1"
 
 [lib]
 name = "molly"
