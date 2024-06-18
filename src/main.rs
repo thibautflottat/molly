@@ -14,6 +14,152 @@ use molly::reader::NBYTES_POSITIONS_PRELUDE;
 use molly::selection::{AtomSelection, FrameSelection, Range};
 use molly::{padding, read_positions, Frame, Header, XTCReader};
 
+fn filter_frames(
+    reader: &mut XTCReader<File>,
+    writer: &mut BufWriter<File>,
+    args: WriteArgs,
+) -> std::io::Result<()> {
+    let mut scratch = Vec::new();
+
+    let frame_selection = args.frame_selection.unwrap_or_default();
+    let atom_selection = args.atom_selection.unwrap_or_default();
+
+    let until = if args.reverse || args.reverse_frame_selection {
+        None
+    } else {
+        frame_selection.until()
+    };
+    let mut offsets = reader.determine_offsets(until)?;
+    let mut range: Box<[usize]> = (0..offsets.len()).collect();
+    let enumerated_offsets = {
+        // Reversing the frame order and reversing the frame selection have some non-obvious
+        // interplays.
+        match (args.reverse, args.reverse_frame_selection) {
+            (true, true) => {
+                offsets.reverse();
+            }
+            (true, false) => {
+                offsets.reverse();
+                range.reverse();
+            }
+            (false, true) => {
+                range.reverse();
+            }
+            (false, false) => {}
+        }
+        range.iter().zip(offsets.iter().copied())
+    };
+
+    let mut stdout = std::io::stdout();
+    let mut frame = Frame::default();
+    for (&idx, offset) in enumerated_offsets {
+        match frame_selection.is_included(idx) {
+            Some(true) => {}
+            Some(false) => continue,
+            // If we are reversed in some way, we can't just stop early.
+            None if args.reverse || args.reverse_frame_selection => continue,
+            None => break,
+        }
+
+        // Go to the start of this frame.
+        reader.file.seek(SeekFrom::Start(offset))?;
+
+        // Start of by reading the header.
+        let header = reader.read_header()?;
+
+        if args.times || args.steps {
+            if args.times {
+                write!(stdout, "{:.3}\t", header.time)?;
+            }
+            if args.steps {
+                write!(stdout, "{}", header.step)?;
+            }
+            writeln!(stdout, "")?;
+        }
+
+        // Now, we read the atoms.
+        let natoms_frame = header.natoms; // The number of atoms specified for the frame.
+        let nbytes = if natoms_frame <= 9 {
+            // In this case, the positions are uncompressed. Each consists of three f32s, so we're
+            // done pretty quickly.
+            reader.read_smol_positions(natoms_frame, &mut frame, &atom_selection)?
+        } else {
+            let nbytes = match args.is_buffered {
+                false => read_positions::<UnBuffered, File>(
+                    &mut reader.file,
+                    natoms_frame,
+                    &mut scratch,
+                    &mut frame,
+                    &atom_selection,
+                )?,
+                true => read_positions::<Buffer, File>(
+                    &mut reader.file,
+                    natoms_frame,
+                    &mut scratch,
+                    &mut frame,
+                    &atom_selection,
+                )?,
+            };
+            reader.step += 1;
+            nbytes
+        };
+
+        // The number of atoms we are actually interested in for our output. Important to know
+        // since it may be the case that more atoms are selected than are in the frame.
+        let natoms = frame.natoms();
+        // Reset to the start of the frame again, and skip the header.
+        let offset_and_header = offset + Header::SIZE as u64;
+        reader.file.seek(SeekFrom::Start(offset_and_header))?;
+
+        // Redefine the header to reflect our changes.
+        let header = Header {
+            natoms,
+            natoms_repeated: natoms,
+            ..header
+        };
+        // And write it.
+        writer.write_all(&header.to_be_bytes())?;
+
+        if natoms <= 9 {
+            // The number of positions is small. We encode the positions as uncompressed floats.
+            for pos in &frame.positions {
+                writer.write_all(&pos.to_be_bytes())?;
+            }
+        } else {
+            // TODO: Consider 're-using' the scratch buffer!! It will contain (more than) the bytes we want to write out!
+            // TODO: Invent some sort of SCRATCH mechanism here again.
+
+            // Just copy over the precision, prelude, followed by the section of compressed bytes.
+            let mut precision = [0; 4];
+            reader.file.read_exact(&mut precision)?;
+            writer.write_all(&precision)?;
+
+            // Copy over the prelude, since that remains exactly the same.
+            let mut prelude = [0; NBYTES_POSITIONS_PRELUDE];
+            reader.file.read_exact(&mut prelude)?;
+            writer.write_all(&prelude)?;
+
+            let mut nbytes_old = [0; 4];
+            reader.file.read_exact(&mut nbytes_old)?;
+            // Check whether we totally messed up.
+            let nbytes_old = u32::from_be_bytes(nbytes_old);
+            assert!(
+                nbytes <= nbytes_old as usize,
+                "the new number of bytes ({nbytes}) must never be greater than the old number of bytes ({nbytes_old})"
+            );
+
+            // Write the new number of upcoming bytes.
+            writer.write_all(&(nbytes as u32).to_be_bytes())?;
+            // Note that we are dealing with xdr padding, here! (32-bit blocks.)
+            let mut bytes = vec![0; nbytes + padding(nbytes)];
+            reader.file.read_exact(&mut bytes[..nbytes])?;
+            writer.write_all(&bytes)?;
+        }
+    }
+
+    Ok(())
+}
+
 fn frame_selection_parser(selection: &str) -> Result<FrameSelection, ParseIntError> {
     let mut components = selection.split(':');
     let start = components
@@ -185,150 +331,4 @@ fn main() -> std::io::Result<()> {
         .expect("write arguments must be available if --info is not passed");
     let mut writer = BufWriter::new(std::fs::File::create(&write.output)?);
     filter_frames(&mut reader, &mut writer, write)
-}
-
-fn filter_frames(
-    reader: &mut XTCReader<File>,
-    writer: &mut BufWriter<File>,
-    args: WriteArgs,
-) -> std::io::Result<()> {
-    let mut scratch = Vec::new();
-
-    let frame_selection = args.frame_selection.unwrap_or_default();
-    let atom_selection = args.atom_selection.unwrap_or_default();
-
-    let until = if args.reverse || args.reverse_frame_selection {
-        None
-    } else {
-        frame_selection.until()
-    };
-    let mut offsets = reader.determine_offsets(until)?;
-    let mut range: Box<[usize]> = (0..offsets.len()).collect();
-    let enumerated_offsets = {
-        // Reversing the frame order and reversing the frame selection have some non-obvious
-        // interplays.
-        match (args.reverse, args.reverse_frame_selection) {
-            (true, true) => {
-                offsets.reverse();
-            }
-            (true, false) => {
-                offsets.reverse();
-                range.reverse();
-            }
-            (false, true) => {
-                range.reverse();
-            }
-            (false, false) => {}
-        }
-        range.iter().zip(offsets.iter().copied())
-    };
-
-    let mut stdout = std::io::stdout();
-    let mut frame = Frame::default();
-    for (&idx, offset) in enumerated_offsets {
-        match frame_selection.is_included(idx) {
-            Some(true) => {}
-            Some(false) => continue,
-            // If we are reversed in some way, we can't just stop early.
-            None if args.reverse || args.reverse_frame_selection => continue,
-            None => break,
-        }
-
-        // Go to the start of this frame.
-        reader.file.seek(SeekFrom::Start(offset))?;
-
-        // Start of by reading the header.
-        let header = reader.read_header()?;
-
-        if args.times || args.steps {
-            if args.times {
-                write!(stdout, "{:.3}\t", header.time)?;
-            }
-            if args.steps {
-                write!(stdout, "{}", header.step)?;
-            }
-            writeln!(stdout, "")?;
-        }
-
-        // Now, we read the atoms.
-        let natoms_frame = header.natoms; // The number of atoms specified for the frame.
-        let nbytes = if natoms_frame <= 9 {
-            // In this case, the positions are uncompressed. Each consists of three f32s, so we're
-            // done pretty quickly.
-            reader.read_smol_positions(natoms_frame, &mut frame, &atom_selection)?
-        } else {
-            let nbytes = match args.is_buffered {
-                false => read_positions::<UnBuffered, File>(
-                    &mut reader.file,
-                    natoms_frame,
-                    &mut scratch,
-                    &mut frame,
-                    &atom_selection,
-                )?,
-                true => read_positions::<Buffer, File>(
-                    &mut reader.file,
-                    natoms_frame,
-                    &mut scratch,
-                    &mut frame,
-                    &atom_selection,
-                )?,
-            };
-            reader.step += 1;
-            nbytes
-        };
-
-        // The number of atoms we are actually interested in for our output. Important to know
-        // since it may be the case that more atoms are selected than are in the frame.
-        let natoms = frame.natoms();
-        // Reset to the start of the frame again, and skip the header.
-        let offset_and_header = offset + Header::SIZE as u64;
-        reader.file.seek(SeekFrom::Start(offset_and_header))?;
-
-        // Redefine the header to reflect our changes.
-        let header = Header {
-            natoms,
-            natoms_repeated: natoms,
-            ..header
-        };
-        // And write it.
-        writer.write_all(&header.to_be_bytes())?;
-
-        if natoms <= 9 {
-            // The number of positions is small. We encode the positions as uncompressed floats.
-            for pos in &frame.positions {
-                writer.write_all(&pos.to_be_bytes())?;
-            }
-        } else {
-            // TODO: Consider 're-using' the scratch buffer!! It will contain (more than) the bytes we want to write out!
-            // TODO: Invent some sort of SCRATCH mechanism here again.
-
-            // Just copy over the precision, prelude, followed by the section of compressed bytes.
-            let mut precision = [0; 4];
-            reader.file.read_exact(&mut precision)?;
-            writer.write_all(&precision)?;
-
-            // Copy over the prelude, since that remains exactly the same.
-            let mut prelude = [0; NBYTES_POSITIONS_PRELUDE];
-            reader.file.read_exact(&mut prelude)?;
-            writer.write_all(&prelude)?;
-
-            let mut nbytes_old = [0; 4];
-            reader.file.read_exact(&mut nbytes_old)?;
-            // Check whether we totally messed up.
-            let nbytes_old = u32::from_be_bytes(nbytes_old);
-            assert!(
-                nbytes <= nbytes_old as usize,
-                "the new number of bytes ({nbytes}) must never be greater than the old number of bytes ({nbytes_old})"
-            );
-
-            // Write the new number of upcoming bytes.
-            writer.write_all(&(nbytes as u32).to_be_bytes())?;
-            // Note that we are dealing with xdr padding, here! (32-bit blocks.)
-            let mut bytes = vec![0; nbytes + padding(nbytes)];
-            reader.file.read_exact(&mut bytes[..nbytes])?;
-            writer.write_all(&bytes)?;
-        }
-    }
-
-    Ok(())
 }
