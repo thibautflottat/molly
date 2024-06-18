@@ -276,7 +276,13 @@ struct WriteArgs {
 fn main() -> std::io::Result<()> {
     let args = Args::parse();
 
-    let file = std::fs::File::open(&args.input)?;
+    let file = std::fs::File::open(&args.input).unwrap_or_else(|err| {
+        eprintln!(
+            "ERROR: Failed to read trajectory from {:?}: {err}",
+            &args.input
+        );
+        std::process::exit(1)
+    });
     let mut reader = XTCReader::new(file);
 
     if args.info {
@@ -329,6 +335,12 @@ fn main() -> std::io::Result<()> {
     let write = args
         .write
         .expect("write arguments must be available if --info is not passed");
-    let mut writer = BufWriter::new(std::fs::File::create(&write.output)?);
+    let mut writer = BufWriter::new(std::fs::File::create(&write.output).unwrap_or_else(|err| {
+        eprintln!(
+            "ERROR: Failed to write processed trajectory to {:?}: {err}",
+            &write.output
+        );
+        std::process::exit(1)
+    }));
     filter_frames(&mut reader, &mut writer, write)
 }
