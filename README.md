@@ -19,15 +19,17 @@
 
 A reader for the Gromacs [xtc file format][xtc] implemented in pure Rust.
 
-_molly_ tries to decompress and read the minimal number of bytes. To this end,
-the library features extensive selection methods for **frames** within a
-trajectory and **atoms** within each frame. This selection allows for some
-exciting optimizations. Only the necessary positions are decompressed.
-Similarly, there are circumstances under which only a limited number of
-compressed bytes are read in the first place. This is particularly powerful in
-applications where a subset of positions at the top-end of the frame is
-selected in a large trajectory. Such buffered reading can be very beneficial
-when disk read speed is particularly poor, such as over networked file storage.
+_molly_ tries to decompress and read the minimal number of bytes from disk. To
+this end, the library features extensive selection methods for **frames**
+within a trajectory and **atoms** within each frame. This selection allows for
+some exciting optimizations&mdash;only the necessary positions are
+decompressed.
+Similarly, there are cases where only a limited number of compressed bytes are
+read in the first place. This is particularly powerful in applications where a
+subset of positions at the top-end of the frame is selected in a large
+trajectory.
+Such buffered reading can be very beneficial when disk read speed is
+particularly poor, such as over networked file storage.
 
 For convenient use in existing analysis tools, _molly_ exposes a set of
 bindings that allow access to its functions from Python.
