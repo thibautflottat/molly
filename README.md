@@ -95,11 +95,10 @@ molly = { git = "https://git.sr.ht/~ma3ke/molly" }
 bindings. (The `stable` toolchain is sufficient.)
 
 To install the module, run the following command. It will automatically clone
-the repository, switch to the `alpha` branch, and install the Python library
-from the correct directory.
+the repository and install the Python library from the correct directory.
 
 ```console
-pip3 install 'git+https://git.sr.ht/~ma3ke/molly@alpha#egg=molly&subdirectory=bindings/python'
+pip3 install 'git+https://git.sr.ht/~ma3ke/molly#egg=molly&subdirectory=bindings/python'
 ```
 
 Alternatively, clone the repository, go into the bindings directory, and
