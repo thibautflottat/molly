@@ -1,22 +1,5 @@
 # _molly_&mdash;read `xtc` files, fast
 
-> **WARNING:** This library is unfinished and has not been tested to a
-> sufficient degree.
->
-> Please don't use it for any critical analyses. This repository cannot be
-> considered as public, yet. Please inquire whether its address or contents may
-> be shared on a case-per-case basis until otherwise noted.
->
-> This library is currently purposefully without a license to prevent
-> dependence on its contents.
-
-> **NOTE:** For those who want to try to use this library, please point to the
-> [`alpha` branch][alpha]. The `alpha` branch will be the more stable testing
-> ground while still allowing some more bleeding-edge work to happen on `main`.
-> Pinky-promise that alpha has no breaking changes in the short term.
->
-> For any questions, feel free to get in [contact][contact] with me.
-
 A reader for the Gromacs [xtc file format][xtc] implemented in pure Rust.
 
 _molly_ tries to decompress and read the minimal number of bytes from disk. To
@@ -37,12 +20,18 @@ bindings that allow access to its functions from Python.
 _molly_ can also be installed as a command line tool for shortening and
 filtering xtc files.
 
+> **NOTE:** _molly_ is in a pretty stable state and is used in the wild.
+> Please do take care and verify the results. Blind trust in any tool is
+> irresponsible.
+>
+> For any questions, feel free to get in [contact][contact] with me.
+
 ## Installation
 
 ### Command line application
 
 ```console
-cargo install --git 'https://git.sr.ht/~ma3ke/molly'
+cargo install molly
 ```
 
 #### Usage
@@ -83,11 +72,7 @@ molly big.xtc rev_last_ten.xtc -rRf :10 --steps --times
 
 To use _molly_ in a Rust project, add this repository to the dependencies in
 your `Cargo.toml`.
-
-```toml
-[dependencies]
-molly = { git = "https://git.sr.ht/~ma3ke/molly" }
-```
+Find [_molly_ on crates.io][crates].
 
 ### As a Python module
 
@@ -172,9 +157,9 @@ disk I/O is factored out, buffered reading is around 20% slower than unbuffered
 reading. But over very large trajectories where only a subset of positions from
 the top of each frame is selected, the advantage is considerable.
 
-[alpha]: https://git.sr.ht/~ma3ke/molly/tree/alpha
 [contact]: https://dwangschematiek.nl/where
 [xtc]: https://manual.gromacs.org/current/reference-manual/file-formats.html#xtc
+[crates]: https://crates.io/crates/molly
 [xdrf]: https://gitlab.com/gromacs/gromacs/-/blob/d8d6543db04563cb15f71c90ffb5ed2fda092bce/src/gromacs/fileio/xdrf.h
 [chemfiles]: https://chemfiles.org/
 
