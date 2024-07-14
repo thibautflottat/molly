@@ -1,5 +1,7 @@
 # _molly_&mdash;read `xtc` files, fast
 
+![molly logo](molly.svg)
+
 A reader for the Gromacs [xtc file format][xtc] implemented in pure Rust.
 
 _molly_ tries to decompress and read the minimal number of bytes from disk. To
