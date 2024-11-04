@@ -182,7 +182,7 @@ dependencies = [
 
 [[package]]
 name = "molly"
-version = "0.2.2-alpha"
+version = "0.2.3"
 dependencies = [
  "clap",
  "glam",
