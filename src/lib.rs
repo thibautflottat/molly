@@ -3,16 +3,20 @@ use std::io::{self, Read, Seek, SeekFrom};
 use std::{cell::Cell, path::Path};
 
 use glam::{Mat3, Vec3};
+use reader::read_nbytes;
 
 use crate::buffer::{Buffer, UnBuffered};
-use crate::reader::{read_boxvec, read_compressed_positions, read_f32, read_f32s, read_i32};
+use crate::reader::{
+    read_boxvec, read_compressed_positions, read_f32, read_f32s, read_i32, read_u32,
+};
 use crate::selection::{AtomSelection, FrameSelection};
 
 pub mod buffer;
 pub mod reader;
 pub mod selection;
 
-pub const MAGIC: i32 = 1995;
+// See https://gitlab.com/gromacs/gromacs/-/blob/v2024.1/src/gromacs/fileio/xdrf.h?ref_type=tags#L78
+pub const XTC_1995_MAX_NATOMS: usize = 298261617;
 
 thread_local! {
     /// A scratch buffer to read encoded bytes into for subsequent decoding.
@@ -21,9 +25,47 @@ thread_local! {
 
 pub type BoxVec = Mat3;
 
+#[repr(i32)]
+#[derive(Debug, Clone, Copy)]
+pub enum Magic {
+    Xtc1995 = 1995,
+    Xtc2023 = 2023,
+}
+
+impl Magic {
+    pub const XTC_1995: i32 = Magic::Xtc1995 as _;
+    pub const XTC_2023: i32 = Magic::Xtc2023 as _;
+
+    fn to_be_bytes(&self) -> [u8; 4] {
+        (*self as i32).to_be_bytes()
+    }
+}
+
+impl TryFrom<i32> for Magic {
+    type Error = String;
+
+    fn try_from(value: i32) -> Result<Self, Self::Error> {
+        match value {
+            Magic::XTC_1995 => Ok(Self::Xtc1995),
+            Magic::XTC_2023 => Ok(Self::Xtc2023),
+            unknown => Err(format!(
+                "found invalid magic number '{unknown}' ({unknown:#0x}), {} and {} are supported",
+                Self::XTC_1995,
+                Self::XTC_2023
+            )),
+        }
+    }
+}
+
+impl std::fmt::Display for Magic {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", *self as i32)
+    }
+}
+
 /// The header of a single xtc frame.
 pub struct Header {
-    pub magic: i32,
+    pub magic: Magic,
     pub natoms: usize,
     pub step: u32,
     pub time: f32,
@@ -35,14 +77,12 @@ impl Header {
     pub const SIZE: usize = 4 * (5 + 9);
 
     pub fn read(file: &mut impl Read) -> io::Result<Self> {
-        let magic = read_i32(file)?;
         // TODO: This check ought to become a proper error.
-        // TODO: Also implement the 2023 magic number!
-        assert_eq!(
-            magic, MAGIC,
-            "found invalid magic number '{magic}' ({magic:#0x})"
-        );
-        let natoms: usize = read_i32(file)?
+        let magic = match Magic::try_from(read_i32(file)?) {
+            Ok(magic) => magic,
+            Err(err) => panic!("could not read header: {err}"),
+        };
+        let natoms: usize = read_u32(file)?
             .try_into()
             .map_err(|err| io::Error::other(format!("could not read natoms: {err}")))?;
         let step: u32 = read_i32(file)?
@@ -52,7 +92,7 @@ impl Header {
 
         // Read the frame data.
         let boxvec = read_boxvec(file)?;
-        let natoms_repeated = read_i32(file)?
+        let natoms_repeated = read_u32(file)?
             .try_into()
             .map_err(|err| io::Error::other(format!("could not read second natoms: {err}")))?;
         assert_eq!(natoms, natoms_repeated);
@@ -70,7 +110,9 @@ impl Header {
     pub fn to_be_bytes(&self) -> [u8; Self::SIZE] {
         let mut bytes = Vec::new();
         bytes.extend(self.magic.to_be_bytes()); // i32
-        bytes.extend(i32::try_from(self.natoms).unwrap().to_be_bytes()); // i32
+
+        let natoms = u32::try_from(self.natoms).unwrap().to_be_bytes();
+        bytes.extend(natoms); // u32
         bytes.extend(i32::try_from(self.step).unwrap().to_be_bytes()); // i32
         bytes.extend(self.time.to_be_bytes()); // f32
         bytes.extend(
@@ -81,7 +123,7 @@ impl Header {
                 .flatten(),
         ); // 9 × f32
         assert_eq!(self.natoms, self.natoms_repeated);
-        bytes.extend(i32::try_from(self.natoms).unwrap().to_be_bytes()); // i32
+        bytes.extend(natoms); // u32
 
         bytes.try_into().unwrap()
     }
@@ -133,6 +175,7 @@ pub fn read_positions<'s, 'r, B: buffer::Buffered<'s, 'r, R>, R: Read>(
     scratch: &'s mut Vec<u8>,
     frame: &mut Frame,
     atom_selection: &AtomSelection,
+    magic: Magic,
 ) -> io::Result<usize> {
     // If the atom_selection specifies fewer atoms, we will only allocate up to that point.
     let natoms_selected = match atom_selection {
@@ -140,9 +183,10 @@ pub fn read_positions<'s, 'r, B: buffer::Buffered<'s, 'r, R>, R: Read>(
         AtomSelection::Mask(mask) => mask.iter().take(natoms).filter(|&&include| include).count(),
         AtomSelection::Until(end) => *end as usize,
     };
-    let natoms = usize::min(natoms, natoms_selected);
 
-    frame.positions.resize(natoms * 3, 0.0);
+    frame
+        .positions
+        .resize(usize::min(natoms, natoms_selected) * 3, 0.0);
     frame.precision = read_f32(file)?;
     read_compressed_positions::<B, R>(
         file,
@@ -150,6 +194,7 @@ pub fn read_positions<'s, 'r, B: buffer::Buffered<'s, 'r, R>, R: Read>(
         frame.precision,
         scratch,
         atom_selection,
+        magic,
     )
 }
 
@@ -301,7 +346,14 @@ impl<R: Read> XTCReader<R> {
         if natoms <= 9 {
             self.read_smol_positions(natoms, frame, atom_selection)?;
         } else {
-            read_positions::<B, R>(&mut self.file, natoms, scratch, frame, atom_selection)?;
+            read_positions::<B, R>(
+                &mut self.file,
+                natoms,
+                scratch,
+                frame,
+                atom_selection,
+                header.magic,
+            )?;
         }
 
         self.step += 1;
@@ -356,9 +408,9 @@ impl XTCReader<File> {
             } else {
                 // We need to read the nbytes value to get the offset until the next header.
                 file.seek(SeekFrom::Current(32))?;
-                let nbytes: u64 = read_i32(file)?
-                    .try_into()
-                    .map_err(|err| io::Error::other(format!("could not read frame size: {err}")))?;
+                // The size of the buffer is stored either as a 64 or 32-bit integer, depending on
+                // the magic number in the header.
+                let nbytes = read_nbytes(file, header.magic)? as u64;
                 nbytes + padding(nbytes as usize) as u64
             };
             let offset = file.seek(SeekFrom::Current(skip as i64))?;

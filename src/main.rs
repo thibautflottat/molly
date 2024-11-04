@@ -10,15 +10,22 @@ use std::str::FromStr;
 
 use clap::Parser;
 use molly::buffer::{Buffer, UnBuffered};
-use molly::reader::NBYTES_POSITIONS_PRELUDE;
+use molly::reader::{read_nbytes, NBYTES_POSITIONS_PRELUDE};
 use molly::selection::{AtomSelection, FrameSelection, Range};
-use molly::{padding, read_positions, Frame, Header, XTCReader};
+use molly::{padding, read_positions, Frame, Header, Magic, XTCReader, XTC_1995_MAX_NATOMS};
 
 fn filter_frames(
     reader: &mut XTCReader<File>,
     writer: &mut BufWriter<File>,
     args: WriteArgs,
 ) -> std::io::Result<()> {
+    // Forced magic drinking.
+    let forced_magic = args
+        .force_magic
+        .map(Magic::try_from)
+        .transpose()
+        .map_err(std::io::Error::other)?;
+
     let mut scratch = Vec::new();
 
     let frame_selection = args.frame_selection.unwrap_or_default();
@@ -91,6 +98,7 @@ fn filter_frames(
                     &mut scratch,
                     &mut frame,
                     &atom_selection,
+                    header.magic,
                 )?,
                 true => read_positions::<Buffer, File>(
                     &mut reader.file,
@@ -98,6 +106,7 @@ fn filter_frames(
                     &mut scratch,
                     &mut frame,
                     &atom_selection,
+                    header.magic,
                 )?,
             };
             reader.step += 1;
@@ -113,6 +122,7 @@ fn filter_frames(
 
         // Redefine the header to reflect our changes.
         let header = Header {
+            magic: forced_magic.unwrap_or(header.magic),
             natoms,
             natoms_repeated: natoms,
             ..header
@@ -139,17 +149,19 @@ fn filter_frames(
             reader.file.read_exact(&mut prelude)?;
             writer.write_all(&prelude)?;
 
-            let mut nbytes_old = [0; 4];
-            reader.file.read_exact(&mut nbytes_old)?;
+            let nbytes_old = read_nbytes(&mut reader.file, header.magic)?;
             // Check whether we totally messed up.
-            let nbytes_old = u32::from_be_bytes(nbytes_old);
             assert!(
                 nbytes <= nbytes_old as usize,
                 "the new number of bytes ({nbytes}) must never be greater than the old number of bytes ({nbytes_old})"
             );
 
             // Write the new number of upcoming bytes.
-            writer.write_all(&(nbytes as u32).to_be_bytes())?;
+            if natoms > XTC_1995_MAX_NATOMS {
+                writer.write_all(&(nbytes as u64).to_be_bytes())?;
+            } else {
+                writer.write_all(&(nbytes as u32).to_be_bytes())?;
+            }
             // Note that we are dealing with xdr padding, here! (32-bit blocks.)
             let mut bytes = vec![0; nbytes + padding(nbytes)];
             reader.file.read_exact(&mut bytes[..nbytes])?;
@@ -234,7 +246,7 @@ struct WriteArgs {
     /// stored into the output file.
     ///
     // TODO: Verify that I didn't make any mistakes in these examples, once everything is up and running.
-    /// - `1312` selects the first 1312 frames.
+    /// - `1312` selects the first 1312 atoms.
     ///
     /// Note that according to the xtc format, when the number of atoms in the frame is equal to
     /// or less than 9 (natoms <= 9), the atoms will be stored in an uncompressed manner.
@@ -271,6 +283,10 @@ struct WriteArgs {
     /// If both `times` and `steps` are active, they will be separated by tabs and printed in that order.
     #[arg(long)]
     steps: bool,
+
+    /// Force set the magic number of the output file.
+    #[arg(long, hide = true)]
+    force_magic: Option<i32>,
 }
 
 fn main() -> std::io::Result<()> {

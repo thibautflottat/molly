@@ -1,8 +1,8 @@
 use std::fs::File;
 use std::io::{self, Read, Seek, SeekFrom};
 
-use crate::padding;
-use crate::reader::{read_opaque, read_u32};
+use crate::{padding, Magic};
+use crate::reader::read_nbytes;
 
 pub trait Buffered<'s, 'r, R>: Sized {
     // TODO(buffered): Consider giving the n_bytes from the outside?
@@ -17,7 +17,7 @@ pub trait Buffered<'s, 'r, R>: Sized {
     // as a mutable byte slice, since we do not need to do any Vec-specific operations on it
     // afterwards. When this type is dropped, the ownership of `scratch` is returned since the
     // reference to it dissolves.
-    fn new(scratch: &'s mut Vec<u8>, reader: &'r mut R) -> io::Result<Self>;
+    fn new(scratch: &'s mut Vec<u8>, reader: &'r mut R, magic: Magic) -> io::Result<Self>;
 
     /// Pop a byte from the buffer.
     ///
@@ -93,8 +93,12 @@ impl Buffer<'_, '_> {
 }
 
 impl<'s, 'r> Buffered<'s, 'r, File> for Buffer<'s, 'r> {
-    fn new(scratch: &'s mut Vec<u8>, reader: &'r mut File) -> io::Result<Self> {
-        let count = read_u32(reader)? as usize;
+    fn new(
+        scratch: &'s mut Vec<u8>,
+        reader: &'r mut File,
+        magic: Magic,
+    ) -> io::Result<Self> {
+        let count = read_nbytes(reader, magic)?;
 
         // Fill the scratch buffer with a cautionary value.
         scratch.resize(count + padding(count), 0xff); // FIXME: Is MaybeUninit a good idea here?
@@ -152,8 +156,10 @@ pub struct UnBuffered<'s> {
 
 /// A fallback non-buffered implementation in case [`std::io::Seek`] is not available for `R`.
 impl<'s, 'r, R: Read> Buffered<'s, 'r, R> for UnBuffered<'s> {
-    fn new(scratch: &'s mut Vec<u8>, reader: &'r mut R) -> io::Result<Self> {
-        read_opaque(reader, scratch)?;
+    fn new(scratch: &'s mut Vec<u8>, reader: &'r mut R, magic: Magic) -> io::Result<Self> {
+        let count = read_nbytes(reader, magic)?;
+        scratch.resize(count + padding(count), 0);
+        reader.read_exact(scratch)?;
         Ok(Self { head: 0, scratch })
     }
 

@@ -1,6 +1,8 @@
 use std::io::{self, Read};
 
-use crate::{buffer::Buffered, padding, selection::AtomSelection, BoxVec};
+use crate::buffer::Buffered;
+use crate::selection::AtomSelection;
+use crate::{BoxVec, Magic};
 
 struct DecodeState {
     lastbits: usize,
@@ -28,12 +30,15 @@ pub const NBYTES_POSITIONS_PRELUDE: usize = 7 * 4;
 /// The low-level decompression routine.
 ///
 /// If successful, returns the number of compressed bytes that were read.
+///
+/// `natoms_header` must be greater than or equal to the number of `positions`.
 pub fn read_compressed_positions<'s, 'r, B: Buffered<'s, 'r, R>, R: Read>(
     file: &'r mut R,
     positions: &mut [f32],
     precision: f32,
     scratch: &'s mut Vec<u8>,
     atom_selection: &AtomSelection,
+    magic: Magic,
 ) -> io::Result<usize> {
     let n = positions.len();
     assert_eq!(n % 3, 0, "the length of `positions` must be divisible by 3");
@@ -76,7 +81,7 @@ pub fn read_compressed_positions<'s, 'r, B: Buffered<'s, 'r, R>, R: Read>(
     let mut sizesmall = [MAGICINTS[smallidx] as u32; 3];
 
     scratch.clear();
-    let mut buffer = B::new(scratch, file)?;
+    let mut buffer = B::new(scratch, file, magic)?;
 
     let mut state = DecodeState {
         lastbits: 0,
@@ -216,12 +221,6 @@ pub(crate) fn read_boxvec<R: Read>(file: &mut R) -> io::Result<BoxVec> {
     Ok(BoxVec::from_cols_array_2d(&cols))
 }
 
-pub(crate) fn read_opaque<R: Read>(file: &mut R, data: &mut Vec<u8>) -> io::Result<()> {
-    let count = read_u32(file)? as usize;
-    data.resize(count + padding(count), 0);
-    file.read_exact(data)
-}
-
 pub(crate) fn read_f32s<R: Read>(file: &mut R, buf: &mut [f32]) -> io::Result<()> {
     for value in buf {
         *value = read_f32(file)?
@@ -246,6 +245,20 @@ pub(crate) fn read_u32<R: Read>(file: &mut R) -> io::Result<u32> {
     let mut buf: [u8; 4] = Default::default();
     file.read_exact(&mut buf)?;
     Ok(u32::from_be_bytes(buf))
+}
+
+pub(crate) fn read_u64<R: Read>(file: &mut R) -> io::Result<u64> {
+    let mut buf: [u8; 8] = Default::default();
+    file.read_exact(&mut buf)?;
+    Ok(u64::from_be_bytes(buf))
+}
+
+pub fn read_nbytes<R: Read>(reader: &mut R, magic: Magic) -> io::Result<usize> {
+    let nbytes = match magic {
+        Magic::Xtc1995 => read_u32(reader)? as usize,
+        Magic::Xtc2023 => read_u64(reader)? as usize,
+    };
+    Ok(nbytes)
 }
 
 fn calc_sizeint(
@@ -580,52 +593,61 @@ mod tests {
         1.16400003, 1.14300000, 0.65800005,
     ];
 
-    #[test]
-    fn read_compressed() -> std::io::Result<()> {
-        // A hand-tweaked test frame, derived from `delinyah_smaller.xtc`. Describes 125 positions.
-        let bytes = include_bytes!("../tests/trajectories/delinyah_tiny.xtc");
-        let position_bytes = &bytes[HEADER_BYTES..]; // Skip the header.
+    // TODO: Add a set of tests for the 2023 magic number as well. In order to do that, we need a
+    // 2023-magic number counterpart to 'delinyah_tiny.xtc'.
+    mod magic_1995 {
+        use super::*;
+        const MAGIC: Magic = Magic::Xtc1995;
 
-        let mut positions = vec![0.0; N_ATOMS * 3];
-        let mut scratch = Vec::new();
-        let precision = 1000.0;
-        let mut data = BufReader::new(position_bytes);
-        read_compressed_positions::<UnBuffered, _>(
-            &mut data,
-            &mut positions,
-            precision,
-            &mut scratch,
-            &AtomSelection::Until(N_ATOMS as u32),
-        )?;
+        #[test]
+        fn read_compressed() -> std::io::Result<()> {
+            // A hand-tweaked test frame, derived from `delinyah_smaller.xtc`. Describes 125 positions.
+            let bytes = include_bytes!("../tests/trajectories/delinyah_tiny.xtc");
+            let position_bytes = &bytes[HEADER_BYTES..]; // Skip the header.
 
-        assert_eq!(positions.len(), N_ATOMS * 3); // We know this but still.
-        assert_eq!(positions.len(), CORRECT_POSITIONS.len());
-        assert_eq!(positions, CORRECT_POSITIONS);
+            let mut positions = vec![0.0; N_ATOMS * 3];
+            let mut scratch = Vec::new();
+            let precision = 1000.0;
+            let mut data = BufReader::new(position_bytes);
+            read_compressed_positions::<UnBuffered, _>(
+                &mut data,
+                &mut positions,
+                precision,
+                &mut scratch,
+                &AtomSelection::Until(N_ATOMS as u32),
+                MAGIC,
+            )?;
 
-        Ok(())
-    }
+            assert_eq!(positions.len(), N_ATOMS * 3); // We know this but still.
+            assert_eq!(positions.len(), CORRECT_POSITIONS.len());
+            assert_eq!(positions, CORRECT_POSITIONS);
 
-    #[test]
-    fn read_compressed_from_file() -> std::io::Result<()> {
-        // A hand-tweaked test frame, derived from `delinyah_smaller.xtc`. Describes 125 positions.
-        let mut file = std::fs::File::open("tests/trajectories/delinyah_tiny.xtc")?;
-        file.seek(io::SeekFrom::Start(HEADER_BYTES as u64))?; // Skip the header.
+            Ok(())
+        }
 
-        let mut positions = vec![0.0; N_ATOMS * 3];
-        let mut scratch = Vec::new();
-        let precision = 1000.0;
-        read_compressed_positions::<Buffer, _>(
-            &mut file,
-            &mut positions,
-            precision,
-            &mut scratch,
-            &AtomSelection::Until(N_ATOMS as u32),
-        )?;
+        #[test]
+        fn read_compressed_from_file() -> std::io::Result<()> {
+            // A hand-tweaked test frame, derived from `delinyah_smaller.xtc`. Describes 125 positions.
+            let mut file = std::fs::File::open("tests/trajectories/delinyah_tiny.xtc")?;
+            file.seek(io::SeekFrom::Start(HEADER_BYTES as u64))?; // Skip the header.
 
-        assert_eq!(positions.len(), N_ATOMS * 3); // We know this but still.
-        assert_eq!(positions.len(), CORRECT_POSITIONS.len());
-        assert_eq!(positions, CORRECT_POSITIONS);
+            let mut positions = vec![0.0; N_ATOMS * 3];
+            let mut scratch = Vec::new();
+            let precision = 1000.0;
+            read_compressed_positions::<Buffer, _>(
+                &mut file,
+                &mut positions,
+                precision,
+                &mut scratch,
+                &AtomSelection::Until(N_ATOMS as u32),
+                MAGIC,
+            )?;
 
-        Ok(())
+            assert_eq!(positions.len(), N_ATOMS * 3); // We know this but still.
+            assert_eq!(positions.len(), CORRECT_POSITIONS.len());
+            assert_eq!(positions, CORRECT_POSITIONS);
+
+            Ok(())
+        }
     }
 }

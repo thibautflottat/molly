@@ -2,9 +2,7 @@ use std::io::{BufReader, ErrorKind, Seek};
 
 use bencher::{benchmark_group, benchmark_main, Bencher};
 use molly::{
-    reader,
-    selection::{AtomSelection, FrameSelection},
-    Frame, XTCReader,
+    reader, selection::{AtomSelection, FrameSelection}, Frame, Magic, XTCReader
 };
 
 benchmark_main!(reading, decoding);
@@ -90,6 +88,7 @@ fn read_frames_few_atoms_buffered(b: &mut Bencher) {
 }
 
 fn read_compressed_positions(b: &mut Bencher) {
+    let magic = Magic::Xtc1995;
     let natoms = 125;
     // A hand-tweaked test frame, derived from `delinyah_smaller.xtc`. Describes 125 positions.
     let bytes = include_bytes!("../tests/trajectories/delinyah_tiny.xtc");
@@ -107,12 +106,14 @@ fn read_compressed_positions(b: &mut Bencher) {
             precision,
             &mut scratch,
             &AtomSelection::Until(natoms as u32),
+            magic,
         )
         .unwrap()
     });
 }
 
 fn read_compressed_positions_from_file(b: &mut Bencher) {
+    let magic = Magic::Xtc1995;
     let natoms = 125;
     // A hand-tweaked test frame, derived from `delinyah_smaller.xtc`. Describes 125 positions.
     let mut file = std::fs::File::open("tests/trajectories/delinyah_tiny.xtc").unwrap();
@@ -130,12 +131,14 @@ fn read_compressed_positions_from_file(b: &mut Bencher) {
             precision,
             &mut scratch,
             &AtomSelection::Until(natoms as u32),
+            magic,
         )
         .unwrap()
     });
 }
 
 fn read_compressed_positions_from_file_buffered(b: &mut Bencher) {
+    let magic = Magic::Xtc1995;
     let natoms = 125;
     // A hand-tweaked test frame, derived from `delinyah_smaller.xtc`. Describes 125 positions.
     let mut file = std::fs::File::open("tests/trajectories/delinyah_tiny.xtc").unwrap();
@@ -153,6 +156,7 @@ fn read_compressed_positions_from_file_buffered(b: &mut Bencher) {
             precision,
             &mut scratch,
             &AtomSelection::Until(natoms as u32),
+            magic,
         )
         .unwrap()
     });
