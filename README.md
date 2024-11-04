@@ -20,7 +20,7 @@ For convenient use in existing analysis tools, _molly_ exposes a set of
 bindings that allow access to its functions from Python.
 
 _molly_ can also be installed as a command line tool for shortening and
-filtering xtc files.
+filtering xtc files. It supports the 1995 and 2023 magic numbers.
 
 > **NOTE:** _molly_ is in a pretty stable state and is used in the wild.
 > Please do take care and verify the results. Blind trust in any tool is
