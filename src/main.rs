@@ -345,6 +345,12 @@ fn main() -> std::io::Result<()> {
         };
         println!("time:    {times} ns");
 
+        let magic = match first {
+            Some(Header { magic, .. }) => magic.to_string(),
+            None => "?".to_string(),
+        };
+        println!("magic:   {magic}");
+
         return Ok(());
     }
 
