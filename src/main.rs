@@ -121,6 +121,7 @@ fn filter_frames(
         reader.file.seek(SeekFrom::Start(offset_and_header))?;
 
         // Redefine the header to reflect our changes.
+        let old_magic = header.magic;
         let header = Header {
             magic: forced_magic.unwrap_or(header.magic),
             natoms,
@@ -159,7 +160,10 @@ fn filter_frames(
             reader.file.read_exact(&mut prelude)?;
             writer.write_all(&prelude)?;
 
-            let nbytes_old = read_nbytes(&mut reader.file, header.magic)?;
+            // Note that we need to read according to the `old_magic`, since that describes the
+            // data that we are about to read from. This matters since the magic may have been
+            // forced to a different value through the secret command line option :)
+            let nbytes_old = read_nbytes(&mut reader.file, old_magic)?;
             // Check whether we totally messed up.
             assert!(
                 nbytes <= nbytes_old as usize,
