@@ -130,6 +130,16 @@ fn filter_frames(
         // And write it.
         writer.write_all(&header.to_be_bytes())?;
 
+        if header.magic == Magic::Xtc1995 && header.natoms > XTC_1995_MAX_NATOMS {
+            eprintln!(
+                "WARNING: The number of atoms to be written out ({}) \
+                    exceeds the maximum number of atoms for the {} magic number \
+                    ({XTC_1995_MAX_NATOMS} atoms)",
+                header.natoms,
+                Magic::Xtc1995
+            )
+        }
+
         if natoms <= 9 {
             // The number of positions is small. We encode the positions as uncompressed floats.
             for pos in &frame.positions {

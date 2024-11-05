@@ -26,7 +26,7 @@ thread_local! {
 pub type BoxVec = Mat3;
 
 #[repr(i32)]
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Magic {
     Xtc1995 = 1995,
     Xtc2023 = 2023,
