@@ -171,10 +171,9 @@ fn filter_frames(
             );
 
             // Write the new number of upcoming bytes.
-            if natoms > XTC_1995_MAX_NATOMS {
-                writer.write_all(&(nbytes as u64).to_be_bytes())?;
-            } else {
-                writer.write_all(&(nbytes as u32).to_be_bytes())?;
+            match header.magic {
+                Magic::Xtc1995 => writer.write_all(&(nbytes as u32).to_be_bytes())?,
+                Magic::Xtc2023 => writer.write_all(&(nbytes as u64).to_be_bytes())?,
             }
             // Note that we are dealing with xdr padding, here! (32-bit blocks.)
             let mut bytes = vec![0; nbytes + padding(nbytes)];
