@@ -182,7 +182,7 @@ dependencies = [
 
 [[package]]
 name = "molly"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "clap",
  "glam",
@@ -190,7 +190,7 @@ dependencies = [
 
 [[package]]
 name = "molly-python"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "molly",
  "numpy",
