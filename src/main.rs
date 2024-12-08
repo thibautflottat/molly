@@ -287,7 +287,7 @@ struct WriteArgs {
     #[arg(long, short = 'R')]
     reverse_frame_selection: bool,
 
-    /// Print the time value for the selected frames to standard output.
+    /// Print the time (ps) value for the selected frames to standard output.
     #[arg(long)]
     times: bool,
 
@@ -356,7 +356,7 @@ fn main() -> std::io::Result<()> {
             (Some(first), None) => first.to_string(),
             (Some(first), Some(last)) => format!("{first}-{last}"),
         };
-        println!("time:    {times} ns");
+        println!("time:    {times} ps");
 
         let magic = match first {
             Some(Header { magic, .. }) => magic.to_string(),
