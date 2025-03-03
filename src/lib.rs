@@ -77,11 +77,8 @@ impl Header {
     pub const SIZE: usize = 4 * (5 + 9);
 
     pub fn read(file: &mut impl Read) -> io::Result<Self> {
-        // TODO: This check ought to become a proper error.
-        let magic = match Magic::try_from(read_i32(file)?) {
-            Ok(magic) => magic,
-            Err(err) => panic!("could not read header: {err}"),
-        };
+        let magic = Magic::try_from(read_i32(file)?)
+            .map_err(|err| io::Error::other(format!("could not read header: {err}")))?;
         let natoms: usize = read_u32(file)?
             .try_into()
             .map_err(|err| io::Error::other(format!("could not read natoms: {err}")))?;
