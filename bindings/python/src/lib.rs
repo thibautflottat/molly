@@ -6,7 +6,7 @@ use std::path::PathBuf;
 
 use molly::selection;
 use numpy::ndarray::{Array, Axis, Ix2};
-use numpy::{IntoPyArray, Ix1, Ix3, PyArray};
+use numpy::{IntoPyArray, Ix1, Ix3, PyArray, PyArrayMethods, PyUntypedArrayMethods};
 use pyo3::exceptions::{PyTypeError, PyValueError};
 use pyo3::prelude::*;
 use pyo3::types::{PyIterator, PyList, PySlice};
@@ -209,9 +209,9 @@ impl XTCReader {
     fn read_into_array(
         &mut self,
         py: Python<'_>,
-        coordinate_array: &PyArray<f32, Ix3>,
-        boxvec_array: &PyArray<f32, Ix3>,
-        time_array: Option<&PyArray<f32, Ix1>>,
+        coordinate_array: &Bound<'_, PyArray<f32, Ix3>>,
+        boxvec_array: &Bound<'_, PyArray<f32, Ix3>>,
+        time_array: Option<&Bound<'_, PyArray<f32, Ix1>>>,
         frame_selection: Option<FrameSelection>,
         atom_selection: Option<AtomSelection>,
     ) -> PyResult<bool> {
@@ -266,7 +266,7 @@ impl XTCReader {
         let mut coordinates = coordinates.as_array_mut();
         let mut boxvecs = boxvec_array.readwrite();
         let mut boxvecs = boxvecs.as_array_mut();
-        let mut times = time_array.map(|ts| ts.readwrite());
+        let mut times = time_array.map(|ts| ts.try_readwrite()).transpose()?;
         let mut times = times.as_mut().map(|ts| ts.as_array_mut());
 
         let atom_selection: selection::AtomSelection = atom_selection.unwrap_or_default().into();
@@ -376,14 +376,14 @@ impl Frame {
     ///
     /// Distances in nanometers.
     #[getter]
-    fn get_positions<'py>(&self, py: Python<'py>) -> &'py PyArray<f32, Ix2> {
+    fn get_positions<'py>(&self, py: Python<'py>) -> Bound<'py, PyArray<f32, Ix2>> {
         // Fingers crossed we don't make any position lists of which the length isn't a multiple of
         // 3... This is a guarantee from the implementation, so It's Fine(tm).
         let positions = &self.inner.positions;
         let natoms = positions.len() / 3;
         Array::from_shape_vec((natoms, 3), positions.clone())
             .unwrap()
-            .into_pyarray(py)
+            .into_pyarray_bound(py)
     }
 }
 
@@ -391,7 +391,7 @@ impl Frame {
 ///
 /// Marieke Westendorp, 2024.
 #[pymodule]
-fn _molly(_py: Python<'_>, m: &PyModule) -> PyResult<()> {
+fn _molly(_py: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult<()> {
     // m.add_function(wrap_pyfunction!(function_name, m)?)?;
     m.add_class::<XTCReader>()?;
 
