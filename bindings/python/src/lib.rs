@@ -31,7 +31,7 @@ impl From<AtomSelection> for selection::AtomSelection {
 }
 
 impl FromPyObject<'_> for FrameSelection {
-    fn extract(ob: &PyAny) -> PyResult<Self> {
+    fn extract_bound(ob: &Bound<'_, PyAny>) -> PyResult<Self> {
         if let Ok(selection) = ob.downcast::<PySlice>() {
             // TODO: This getattr business seems silly, but maybe it's necessary?
             let start = selection.getattr("start")?.extract().ok();
@@ -52,11 +52,7 @@ impl FromPyObject<'_> for FrameSelection {
         }
 
         if let Ok(it) = ob.downcast::<PyIterator>() {
-            if let Ok(indices) = it
-                .iter()?
-                .map(|i| i.and_then(PyAny::extract::<usize>))
-                .collect::<PyResult<Vec<usize>>>()
-            {
+            if let Ok(indices) = it.extract::<Vec<usize>>() {
                 return Ok(FrameSelection(
                     selection::FrameSelection::framelist_from_iter(indices),
                 ));
@@ -71,24 +67,16 @@ impl FromPyObject<'_> for FrameSelection {
 }
 
 impl FromPyObject<'_> for AtomSelection {
-    fn extract(ob: &PyAny) -> PyResult<Self> {
+    fn extract_bound(ob: &Bound<'_, PyAny>) -> PyResult<Self> {
         if let Ok(until) = ob.extract::<u32>() {
             return Ok(AtomSelection(selection::AtomSelection::Until(until)));
         }
 
         if let Ok(list) = ob.downcast::<PyList>() {
-            if let Ok(bools) = list
-                .iter()
-                .map(PyAny::extract::<bool>)
-                .collect::<PyResult<Vec<bool>>>()
-            {
+            if let Ok(bools) = list.extract::<Vec<bool>>() {
                 return Ok(AtomSelection(selection::AtomSelection::Mask(bools)));
             }
-            if let Ok(indices) = list
-                .iter()
-                .map(PyAny::extract::<u32>)
-                .collect::<PyResult<Vec<u32>>>()
-            {
+            if let Ok(indices) = list.extract::<Vec<u32>>() {
                 return Ok(AtomSelection(selection::AtomSelection::from_index_list(
                     &indices,
                 )));
@@ -136,10 +124,12 @@ impl XTCReader {
         self.frame.clone() // FIXME: Is there a way around this?
     }
 
+    #[pyo3(signature = (until=None))]
     fn determine_offsets(&mut self, until: Option<usize>) -> io::Result<Vec<u64>> {
         self.inner.determine_offsets(until).map(|l| l.to_vec())
     }
 
+    #[pyo3(signature = (until=None))]
     fn determine_frame_sizes(&mut self, until: Option<usize>) -> io::Result<Vec<u64>> {
         self.inner.determine_frame_sizes(until).map(|l| l.to_vec())
     }
@@ -172,6 +162,7 @@ impl XTCReader {
     ///
     /// This function can perform the reads in a buffered manner, depending on the value of the
     /// `buffered` attribute.
+    #[pyo3(signature = (frame_selection=None, atom_selection=None))]
     fn read_frames(
         &mut self,
         frame_selection: Option<FrameSelection>,
@@ -206,6 +197,7 @@ impl XTCReader {
     ///
     /// This function can perform the reads in a buffered manner, depending on the value of the
     /// `buffered` attribute.
+    #[pyo3(signature = (coordinate_array, boxvec_array, time_array=None, frame_selection=None, atom_selection=None))]
     fn read_into_array(
         &mut self,
         py: Python<'_>,
@@ -383,7 +375,7 @@ impl Frame {
         let natoms = positions.len() / 3;
         Array::from_shape_vec((natoms, 3), positions.clone())
             .unwrap()
-            .into_pyarray_bound(py)
+            .into_pyarray(py)
     }
 }
 
