@@ -202,7 +202,11 @@ impl Range {
             }
         }
         let in_range = self.start <= idx;
-        let in_step = self.step.get() == 1 || (idx + self.start) % self.step == 0;
+        // Note that the subtraction of the start and idx should be fine in release mode, due to
+        // the `in_range` precondition. The function must return `Some(false)` if that subtraction
+        // would overflow. But we do use a saturating sub defensively, and to not panic on the
+        // inconsequential overflow in debug builds.
+        let in_step = self.step.get() == 1 || idx.saturating_sub(self.start) % self.step == 0;
         Some(in_range && in_step)
     }
 
@@ -284,9 +288,28 @@ mod tests {
                 assert_eq!(from_n.is_included(idx), Some(from_n_included));
                 assert_eq!(
                     from_n_stepped.is_included(idx),
-                    Some(from_n_included && (n as u64 + idx as u64) % step.get() == 0),
+                    Some(from_n_included && (idx as u64 - n as u64) % step.get() == 0),
                 );
                 assert_eq!(all.is_included(idx), Some(true));
+            }
+        }
+
+        /// This test serves to replicate a degenerate case I found.
+        #[test]
+        fn range_clamped_step() {
+            let end = 50;
+            let s =
+                FrameSelection::Range(Range::new(Some(25), Some(end), Some(3.try_into().unwrap())));
+            assert_eq!(s.until(), Some(end as usize));
+
+            let included = [25, 28, 31, 34, 37, 40, 43, 46, 49];
+            for i in 0..60 {
+                let expected = if i < end {
+                    Some(included.contains(&i))
+                } else {
+                    None
+                };
+                assert_eq!(s.is_included(i as usize), expected);
             }
         }
 

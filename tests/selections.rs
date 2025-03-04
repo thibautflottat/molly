@@ -119,6 +119,11 @@ mod frame_selection {
     fn range_clamped_step() -> std::io::Result<()> {
         assert_frames!(FS::Range(Range::new(Some(500), Some(750), NonZeroU64::new(5))), AS::All => 50)
     }
+    /// Read a clamped range with a step. This test checks a degenerate case I encountered.
+    #[test]
+    fn range_clamped_step_3() -> std::io::Result<()> {
+        assert_frames!(FS::Range(Range::new(Some(25), Some(50), NonZeroU64::new(3))), AS::All => 9)
+    }
 
     /// Read according to a list of indices.
     #[test]
