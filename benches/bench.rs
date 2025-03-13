@@ -2,7 +2,9 @@ use std::io::{BufReader, ErrorKind, Seek};
 
 use bencher::{benchmark_group, benchmark_main, Bencher};
 use molly::{
-    reader, selection::{AtomSelection, FrameSelection}, Frame, Magic, XTCReader
+    reader,
+    selection::{AtomSelection, FrameSelection},
+    Frame, Magic, XTCReader,
 };
 
 benchmark_main!(reading, decoding);
@@ -37,13 +39,15 @@ fn read_frame(b: &mut Bencher) {
 fn read_frame_buffered(b: &mut Bencher) {
     let mut reader = XTCReader::open(PATH).unwrap();
     let mut frame = Frame::default();
-    b.iter(|| match {
-        // Note that we inline the read_frame function here. But it should be the same.
-        reader.read_frame_with_selection_buffered(&mut frame, &AtomSelection::All)
-    } {
-        Ok(_) => {}
-        Err(err) if err.kind() == ErrorKind::UnexpectedEof => reader.home().unwrap(),
-        Err(err) => panic!("{err}"),
+    b.iter(|| {
+        match {
+            // Note that we inline the read_frame function here. But it should be the same.
+            reader.read_frame_with_selection_buffered(&mut frame, &AtomSelection::All)
+        } {
+            Ok(_) => {}
+            Err(err) if err.kind() == ErrorKind::UnexpectedEof => reader.home().unwrap(),
+            Err(err) => panic!("{err}"),
+        }
     });
 }
 
@@ -102,6 +106,7 @@ fn read_compressed_positions(b: &mut Bencher) {
         let mut data = BufReader::new(position_bytes);
         reader::read_compressed_positions::<molly::buffer::UnBuffered, _>(
             &mut data,
+            natoms,
             &mut positions,
             precision,
             &mut scratch,
@@ -127,6 +132,7 @@ fn read_compressed_positions_from_file(b: &mut Bencher) {
         file.seek(std::io::SeekFrom::Start(start)).unwrap();
         reader::read_compressed_positions::<molly::buffer::Buffer, _>(
             &mut file,
+            natoms,
             &mut positions,
             precision,
             &mut scratch,
@@ -152,6 +158,7 @@ fn read_compressed_positions_from_file_buffered(b: &mut Bencher) {
         file.seek(std::io::SeekFrom::Start(start)).unwrap();
         reader::read_compressed_positions::<molly::buffer::UnBuffered, _>(
             &mut file,
+            natoms,
             &mut positions,
             precision,
             &mut scratch,

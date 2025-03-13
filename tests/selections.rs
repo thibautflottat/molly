@@ -37,6 +37,11 @@ fn count_atoms(
     let mut frame = molly::Frame::default();
     reader.read_frame_with_selection(&mut frame, &atom_selection)?;
     reader.home()?;
+
+    // Check that there's no NaNs in the output frame.
+    assert_eq!(frame.coords().position(|v| v.is_nan()), None);
+    assert_eq!(frame.coords().filter(|v| v.is_nan()).count(), 0);
+
     Ok(frame.coords().count())
 }
 
@@ -46,13 +51,11 @@ macro_rules! assert_frames {
     ($frame_selection:expr, $atom_selection:expr => $expected:expr) => {{
         let mut reader = molly::XTCReader::open(&PATH)?;
         let mut frames = Vec::new();
-        let reader = &mut reader;
-        let frames = &mut frames;
         assert_eq!(
-            count_frames(reader, frames, $frame_selection, $atom_selection)?,
+            count_frames(&mut reader, &mut frames, $frame_selection, $atom_selection)?,
             $expected
         );
-        Ok(())
+        Ok::<(), std::io::Error>(())
     }};
 }
 
@@ -61,14 +64,13 @@ macro_rules! assert_frames {
 macro_rules! assert_atoms {
     ($atom_selection:expr => $expected:expr) => {{
         let mut reader = molly::XTCReader::open(&PATH)?;
-        let reader = &mut reader;
-        assert_eq!(count_atoms(reader, $atom_selection)?, $expected);
-        Ok(())
+        // Check that we get the right number of atoms in our frame.
+        assert_eq!(count_atoms(&mut reader, $atom_selection)?, $expected);
+        Ok::<(), std::io::Error>(())
     }};
 }
 
 mod frame_selection {
-
     use super::*;
 
     const NFRAMES: usize = 1001;
@@ -300,5 +302,49 @@ mod atom_selection {
         mask[n - 500] = true;
         mask[n - 1] = true;
         assert_atoms!(AS::Mask(mask) => 3)
+    }
+
+    #[test]
+    fn list() -> std::io::Result<()> {
+        let ag: Box<[u32]> = include_str!("ag.txt")
+            .lines()
+            .map(|l| l.parse().unwrap())
+            .collect();
+        // The number of atoms we get back should be the same as the number of indices we provide.
+        assert_atoms!(AS::from_index_list(&ag) => ag.len())?;
+
+        // Check that there's no NaNs in the output frame.
+        let mut reader = molly::XTCReader::open("tests/trajectories/md-prot.xtc")?;
+        let reader = &mut reader;
+        let atom_selection = AS::from_index_list(&ag);
+        let mut frame = molly::Frame::default();
+        reader.read_frame_with_selection(&mut frame, &atom_selection)?;
+        reader.home()?;
+        // dbg!(&frame.positions);
+        dbg!(frame.coords().position(|v| v.is_nan()));
+        assert_eq!(frame.coords().filter(|v| v.is_nan()).count(), 0);
+        Ok(())
+    }
+
+    #[test]
+    fn list_small() -> std::io::Result<()> {
+        let ag = [0, 1, 2, 5, 6, 7, 8, 99, 100, 1000, 1002, 1020, 1200, 4000];
+        // The number of atoms we get back should be the same as the number of indices we provide.
+        let set = std::collections::HashSet::from(ag);
+        let natoms_expected = set.len();
+
+        let mut reader = molly::XTCReader::open("tests/trajectories/md-prot.xtc")?;
+        let reader = &mut reader;
+        let atom_selection = AS::from_index_list(&ag);
+        let mut frame = molly::Frame::default();
+        reader.read_frame_with_selection(&mut frame, &atom_selection)?;
+        reader.home()?;
+        // Check that there's no NaNs in the output frame.
+        assert_eq!(frame.coords().position(|v| v.is_nan()), None);
+        assert_eq!(frame.coords().filter(|v| v.is_nan()).count(), 0);
+        // Check that we get the right number of atoms in our frame.
+        assert_eq!(frame.natoms(), natoms_expected);
+        assert_eq!(frame.coords().count(), natoms_expected);
+        Ok(())
     }
 }

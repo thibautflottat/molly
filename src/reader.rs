@@ -31,18 +31,33 @@ pub const NBYTES_POSITIONS_PRELUDE: usize = 7 * 4;
 ///
 /// If successful, returns the number of compressed bytes that were read.
 ///
-/// `natoms_header` must be greater than or equal to the number of `positions`.
+/// `header_natoms` must be greater than or equal to the number of `positions`.
 pub fn read_compressed_positions<'s, 'r, B: Buffered<'s, 'r, R>, R: Read>(
     file: &'r mut R,
+    header_natoms: usize,
     positions: &mut [f32],
     precision: f32,
     scratch: &'s mut Vec<u8>,
     atom_selection: &AtomSelection,
     magic: Magic,
 ) -> io::Result<usize> {
-    let n = positions.len();
-    assert_eq!(n % 3, 0, "the length of `positions` must be divisible by 3");
-    let natoms = n / 3;
+    let natoms_out = {
+        let n = positions.len();
+        assert_eq!(n % 3, 0, "the length of `positions` must be divisible by 3");
+        n / 3
+    };
+
+    let nselected = atom_selection.natoms_selected(header_natoms);
+    if nselected < natoms_out {
+        let ninvalid = natoms_out - nselected;
+        eprintln!(
+            "WARNING [molly {}:{}]: The atoms selection includes {nselected} atoms, but the positions \
+            buffer has {natoms_out} spots. This means that {ninvalid} trailing coordinates in the \
+            positions buffer will be invalid.",
+            file!(),
+            line!()
+        )
+    }
 
     let invprecision = precision.recip();
 
@@ -91,13 +106,18 @@ pub fn read_compressed_positions<'s, 'r, B: Buffered<'s, 'r, R>, R: Read>(
     let mut prevcoord;
     let mut write_idx = 0;
     let mut read_idx = 0;
-    'decompress: while read_idx < natoms {
+    // The number of positions to be read to fulfill an AtomSelection may not be equal to natoms!
+    assert!(header_natoms >= natoms_out);
+    let limit = atom_selection.reading_limit(header_natoms);
+    'decompress: while read_idx < limit {
         let mut coord = [0i32; 3];
-        let mut position: &mut [f32; 3] = positions
+        let Some(mut position) = positions
             .chunks_exact_mut(3)
             .nth(write_idx)
-            .map(|pos| pos.try_into().unwrap())
-            .unwrap();
+            .map(|pos| -> &mut [f32; 3] { pos.try_into().unwrap() })
+        else {
+            break 'decompress;
+        };
         if bitsize == 0 {
             coord[0] = decodebits::<_, R>(&mut buffer, &mut state, bitsizeint[0] as usize);
             coord[1] = decodebits::<_, R>(&mut buffer, &mut state, bitsizeint[1] as usize);
@@ -112,15 +132,24 @@ pub fn read_compressed_positions<'s, 'r, B: Buffered<'s, 'r, R>, R: Read>(
         prevcoord = coord;
 
         macro_rules! write_position {
-            ($position:ident, $write_idx:ident, $read_idx:ident, $coord:ident  ) => {
-                match atom_selection.is_included($read_idx) {
+            ($position:ident, $write_idx:ident, $read_idx:ident, $coord:ident) => {
+                let is_included = atom_selection.is_included($read_idx);
+                $read_idx += 1;
+                match is_included {
                     None => break 'decompress,
                     Some(false) => {}
                     Some(true) => {
                         *$position = $coord.map(|v| v as f32 * invprecision);
                         $write_idx += 1;
                     }
-                };
+                }
+                if read_idx >= limit {
+                    // This additional break is necessary because under some conditions within the
+                    // inner loop that deals with runs we may end up trying to pop bytes from the
+                    // buffer that don't actually exist, because we're trying to read a coordinate with
+                    // an index beyond the encoded range.
+                    break 'decompress;
+                }
             };
         }
 
@@ -150,7 +179,8 @@ pub fn read_compressed_positions<'s, 'r, B: Buffered<'s, 'r, R>, R: Read>(
                     sizesmall,
                     &mut coord,
                 );
-                read_idx += 1;
+                // let mut current_coord_read_idx = read_idx;
+                // read_idx += 1;
                 coord[0] += prevcoord[0] - smallnum;
                 coord[1] += prevcoord[1] - smallnum;
                 coord[2] += prevcoord[2] - smallnum;
@@ -158,13 +188,11 @@ pub fn read_compressed_positions<'s, 'r, B: Buffered<'s, 'r, R>, R: Read>(
                     // Swap the first and second atom. This is done to achieve better compression
                     // for water atoms. Waters are stored as OHH, but right now we want to swap the
                     // atoms such that e.g., water will become HOH again.
-                    std::mem::swap(&mut coord[0], &mut prevcoord[0]);
-                    std::mem::swap(&mut coord[1], &mut prevcoord[1]);
-                    std::mem::swap(&mut coord[2], &mut prevcoord[2]);
+                    std::mem::swap(&mut coord, &mut prevcoord);
                     write_position!(position, write_idx, read_idx, prevcoord);
                     position = match positions.chunks_exact_mut(3).nth(write_idx) {
                         Some(c) => c.try_into().unwrap(),
-                        None => break,
+                        None => break 'decompress,
                     };
                 } else {
                     prevcoord = coord;
@@ -172,7 +200,7 @@ pub fn read_compressed_positions<'s, 'r, B: Buffered<'s, 'r, R>, R: Read>(
                 write_position!(position, write_idx, read_idx, coord);
                 position = match positions.chunks_exact_mut(3).nth(write_idx) {
                     Some(c) => c.try_into().unwrap(),
-                    None => break,
+                    None => break 'decompress,
                 };
             }
         } else {
@@ -199,7 +227,15 @@ pub fn read_compressed_positions<'s, 'r, B: Buffered<'s, 'r, R>, R: Read>(
 
         assert_ne!(MAGICINTS[smallidx], 0, "found an invalid size");
         sizesmall.fill(MAGICINTS[smallidx] as u32);
-        read_idx += 1;
+    }
+
+    if write_idx < natoms_out {
+        eprintln!(
+            "WARNING [molly {}:{}]: Could not fill entire positions buffer \
+            (write_idx = {write_idx}, natoms_out = {natoms_out})",
+            file!(),
+            line!()
+        )
     }
 
     // The number of bytes that were read during decompression.
@@ -611,6 +647,7 @@ mod tests {
             let mut data = BufReader::new(position_bytes);
             read_compressed_positions::<UnBuffered, _>(
                 &mut data,
+                N_ATOMS,
                 &mut positions,
                 precision,
                 &mut scratch,
@@ -636,6 +673,7 @@ mod tests {
             let precision = 1000.0;
             read_compressed_positions::<Buffer, _>(
                 &mut file,
+                N_ATOMS,
                 &mut positions,
                 precision,
                 &mut scratch,
@@ -646,6 +684,98 @@ mod tests {
             assert_eq!(positions.len(), N_ATOMS * 3); // We know this but still.
             assert_eq!(positions.len(), CORRECT_POSITIONS.len());
             assert_eq!(positions, CORRECT_POSITIONS);
+
+            Ok(())
+        }
+
+        #[test]
+        fn read_compressed_atom_selection_list() -> std::io::Result<()> {
+            // A hand-tweaked test frame, derived from `delinyah_smaller.xtc`. Describes 125 positions.
+            let bytes = include_bytes!("../tests/trajectories/delinyah_tiny.xtc");
+            let position_bytes = &bytes[HEADER_BYTES..]; // Skip the header.
+            let mut scratch = Vec::new();
+            let precision = 1000.0;
+
+            let mut read_positions = |selection| -> std::io::Result<_> {
+                let mut positions = vec![f32::NAN; N_ATOMS * 3];
+                let mut data = BufReader::new(position_bytes);
+                read_compressed_positions::<UnBuffered, _>(
+                    &mut data,
+                    N_ATOMS,
+                    &mut positions,
+                    precision,
+                    &mut scratch,
+                    &selection,
+                    MAGIC,
+                )?;
+                Ok(positions)
+            };
+
+            // All positions should be correct.
+            let selection = AtomSelection::Mask(vec![true; N_ATOMS]);
+            let positions = read_positions(selection)?;
+            assert_eq!(positions.len(), N_ATOMS * 3); // We know this but still.
+            assert_eq!(positions.len(), CORRECT_POSITIONS.len());
+            assert_eq!(positions, CORRECT_POSITIONS);
+
+            // All positions should be NaN, since the selection is empty.
+            let selection = AtomSelection::Mask(vec![false; N_ATOMS]);
+            let positions = read_positions(selection)?;
+            assert_eq!(positions.len(), N_ATOMS * 3);
+            assert_eq!(positions.len(), CORRECT_POSITIONS.len());
+            assert!(positions.into_iter().all(f32::is_nan));
+
+            // With the interleaved selection, we expect a correct position followed by a NaN,
+            // repeated.
+            let interleaved = Vec::from_iter((0..N_ATOMS as u32).map(|i| i % 2 == 0));
+            let selection = AtomSelection::Mask(interleaved);
+            let positions = read_positions(selection)?;
+            assert_eq!(positions.len(), N_ATOMS * 3);
+            assert_eq!(positions.len(), CORRECT_POSITIONS.len());
+            for (i, (position, correct)) in positions
+                .chunks_exact(3)
+                .zip(CORRECT_POSITIONS.chunks_exact(3).step_by(2))
+                .enumerate()
+            {
+                if i < 63 {
+                    // Expect a correct position.
+                    assert_eq!(position, correct);
+                } else {
+                    // Expect an unfilled position, marked by NaNs.
+                    assert_eq!(position, [f32::NAN; 3]);
+                }
+            }
+
+            // Now, let's try a pattern of falses, trues, falses, trues, and finally falses.
+            let mask: Vec<_> = vec![
+                vec![false; 12],
+                vec![true; 32],
+                vec![false; 56],
+                vec![true; 11],
+                vec![false; 14],
+            ]
+            .into_iter()
+            .flatten()
+            .collect();
+            let selection = AtomSelection::Mask(mask.clone());
+            let positions = read_positions(selection)?;
+            assert_eq!(positions.len(), N_ATOMS * 3);
+            assert_eq!(positions.len(), CORRECT_POSITIONS.len());
+            let n_nans_expected = mask.iter().filter(|&&v| !v).count() * 3;
+            let n_nans = positions.iter().filter(|&&v| v.is_nan()).count();
+            assert_eq!(n_nans, n_nans_expected);
+            let mut positions = positions.chunks_exact(3);
+            let mut corrects = CORRECT_POSITIONS.chunks_exact(3);
+            for selected in mask {
+                let correct = corrects.next().unwrap();
+                if selected {
+                    // Expect a correct position.
+                    let position = positions.next().unwrap();
+                    assert_eq!(position, correct);
+                }
+            }
+            assert!(positions.clone().flatten().all(|v| v.is_nan()));
+            assert_eq!(positions.count() * 3, n_nans_expected);
 
             Ok(())
         }

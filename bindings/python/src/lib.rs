@@ -6,7 +6,10 @@ use std::path::PathBuf;
 
 use molly::selection;
 use numpy::ndarray::{Array, Axis, Ix2};
-use numpy::{IntoPyArray, Ix1, Ix3, PyArray, PyArrayMethods, PyUntypedArrayMethods};
+use numpy::{
+    IntoPyArray, Ix1, Ix3, PyArray, PyArrayMethods, PyReadwriteArray, PyReadwriteArrayDyn,
+    PyUntypedArrayMethods,
+};
 use pyo3::exceptions::{PyTypeError, PyValueError};
 use pyo3::prelude::*;
 use pyo3::types::{PyIterator, PyList, PySlice};
@@ -198,12 +201,12 @@ impl XTCReader {
     /// This function can perform the reads in a buffered manner, depending on the value of the
     /// `buffered` attribute.
     #[pyo3(signature = (coordinate_array, boxvec_array, time_array=None, frame_selection=None, atom_selection=None))]
-    fn read_into_array(
+    fn read_into_array<'py>(
         &mut self,
-        py: Python<'_>,
-        coordinate_array: &Bound<'_, PyArray<f32, Ix3>>,
-        boxvec_array: &Bound<'_, PyArray<f32, Ix3>>,
-        time_array: Option<&Bound<'_, PyArray<f32, Ix1>>>,
+        py: Python<'py>,
+        mut coordinate_array: PyReadwriteArray<'py, f32, Ix3>,
+        mut boxvec_array: PyReadwriteArray<'py, f32, Ix3>,
+        mut time_array: Option<PyReadwriteArray<'py, f32, Ix1>>,
         frame_selection: Option<FrameSelection>,
         atom_selection: Option<AtomSelection>,
     ) -> PyResult<bool> {
@@ -238,7 +241,7 @@ impl XTCReader {
                     (nf_boxvecs, a, b)
                 )));
             }
-            if let Some(time_array) = time_array {
+            if let Some(ref time_array) = time_array {
                 let &[nf_times] = time_array.shape() else {
                     return Err(PyValueError::new_err(
                         "time array should have 1 dimension".to_string(),
@@ -254,12 +257,9 @@ impl XTCReader {
             }
         }
 
-        let mut coordinates = coordinate_array.readwrite();
-        let mut coordinates = coordinates.as_array_mut();
-        let mut boxvecs = boxvec_array.readwrite();
-        let mut boxvecs = boxvecs.as_array_mut();
-        let mut times = time_array.map(|ts| ts.try_readwrite()).transpose()?;
-        let mut times = times.as_mut().map(|ts| ts.as_array_mut());
+        let mut coordinates = coordinate_array.as_array_mut();
+        let mut boxvecs = boxvec_array.as_array_mut();
+        let mut times = time_array.as_mut().map(|ts| ts.as_array_mut());
 
         let atom_selection: selection::AtomSelection = atom_selection.unwrap_or_default().into();
         let mut frame = molly::Frame::default();
@@ -384,7 +384,6 @@ impl Frame {
 /// Marieke Westendorp, 2024.
 #[pymodule]
 fn _molly(_py: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult<()> {
-    // m.add_function(wrap_pyfunction!(function_name, m)?)?;
     m.add_class::<XTCReader>()?;
 
     Ok(())

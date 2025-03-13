@@ -23,9 +23,9 @@ pub enum AtomSelection {
     /// If the value of the mask at an index `n` is `true`, the position at that same index `n` is
     /// included in the selection.
     Mask(Vec<bool>), // TODO: Bitmap optimization?
-    /// Index of the last position to be included in the selection.
+    /// Index of the position right after the last position to be included in the selection.
     ///
-    /// This is an inclusive stop value, such that a value of 8 will mean that a total of 8 atoms
+    /// This is an exclusive stop value, such that a value of 8 will mean that a total of 7 atoms
     /// are read into the frame.
     Until(u32),
 }
@@ -51,12 +51,11 @@ impl AtomSelection {
     ///
     /// Will return [`None`] once the index is beyond the scope of this `AtomSelection`.
     pub fn is_included(&self, idx: usize) -> Option<bool> {
-        let idx = idx as u32;
         match self {
             AtomSelection::All => Some(true),
-            AtomSelection::Mask(mask) => mask.get(idx as usize).copied(),
+            AtomSelection::Mask(mask) => mask.get(idx).copied(),
             AtomSelection::Until(until) => {
-                if &idx <= until {
+                if idx <= *until as usize {
                     Some(true)
                 } else {
                     None
@@ -65,11 +64,12 @@ impl AtomSelection {
         }
     }
 
-    /// Return the last index in this [`Range`].
+    /// Return the last index in this [`AtomSelection`].
     ///
-    /// Note that this is not always equal to a `Range`'s `end` field. In some cases, the `step` of
-    /// a `Range` may not neatly visit the index right before the `end`. This function will return
-    /// the last index before the `end`, taking the value of `step` into account.
+    /// Note that this is not always equal to a `AtomSelection`'s `end` field. In some cases, the
+    /// `step` of a `AtomSelection` may not neatly visit the index right before the `end`. This
+    /// function will return the last index before the `end`, taking the value of `step` into
+    /// account.
     pub fn last(&self) -> Option<usize> {
         match self {
             AtomSelection::All => None,
@@ -79,6 +79,36 @@ impl AtomSelection {
             },
             AtomSelection::Until(until) => Some(*until as usize),
         }
+    }
+
+    /// The number of positions selected by this [`AtomSelection`].
+    ///
+    /// This function will return at most `frame_natoms`.
+    pub(crate) fn natoms_selected(&self, frame_natoms: usize) -> usize {
+        match self {
+            AtomSelection::All => frame_natoms,
+            AtomSelection::Mask(mask) => mask
+                .iter()
+                .take(frame_natoms)
+                .filter(|&&include| include)
+                .count(),
+            AtomSelection::Until(until) => usize::min(*until as usize, frame_natoms),
+        }
+    }
+
+    /// The number of positions that must be read to fulfill this [`AtomSelection`].
+    ///
+    /// This function will return at most `frame_natoms`.
+    ///
+    /// Note that the return value for this function will only differ from
+    /// [`AtomSelection::natoms_selected`] for the `AtomSelection::Mask` variant.
+    pub(crate) fn reading_limit(&self, frame_natoms: usize) -> usize {
+        // TODO: Verify that the natoms used here is well-conceived: it needs to be the number of
+        // atoms that reside in the total compressed frame, but not the natoms we eventually want
+        // to give back to the caller.
+        self.last()
+            .map(|n| usize::min(n, frame_natoms))
+            .unwrap_or(frame_natoms)
     }
 }
 
@@ -391,6 +421,60 @@ mod tests {
                 assert_eq!(mask_trailing_false.is_included(idx), Some(idx < n));
                 assert_eq!(all.is_included(idx), Some(true));
             }
+        }
+
+        #[test]
+        fn non_continuous_mask() {
+            let n = 100;
+
+            let mask = AtomSelection::Mask(vec![
+                true, true, true, false, false, false, true, false, false, true, false,
+            ]);
+            assert_eq!(mask.is_included(0), Some(true));
+            assert_eq!(mask.is_included(1), Some(true));
+            assert_eq!(mask.is_included(2), Some(true));
+            assert_eq!(mask.is_included(3), Some(false));
+            assert_eq!(mask.is_included(4), Some(false));
+            assert_eq!(mask.is_included(5), Some(false));
+            assert_eq!(mask.is_included(6), Some(true));
+            assert_eq!(mask.is_included(7), Some(false));
+            assert_eq!(mask.is_included(8), Some(false));
+            assert_eq!(mask.is_included(9), Some(true));
+            assert_eq!(mask.is_included(10), Some(false));
+            assert_eq!(mask.is_included(11), None);
+            assert_eq!(mask.is_included(12), None);
+            assert_eq!(mask.is_included(100), None);
+            let nselected = mask.natoms_selected(n);
+            assert_eq!(nselected, 5);
+            let limit = mask.reading_limit(n);
+            assert_eq!(limit, 10);
+
+            let s = 15; // In a 100, we can take 7 15-sized steps.
+            let t = 7;
+            let steps =
+                AtomSelection::from_index_list(Vec::from_iter((0..n as u32).step_by(s)).as_slice());
+            assert_eq!(steps.is_included(0), Some(true));
+            assert_eq!(steps.is_included(1), Some(false));
+            assert_eq!(steps.is_included(15), Some(true));
+            assert_eq!(steps.is_included(16), Some(false));
+            assert_eq!(steps.is_included(30), Some(true));
+            assert_eq!(steps.is_included(32), Some(false));
+            assert_eq!(steps.is_included(45), Some(true));
+            assert_eq!(steps.is_included(48), Some(false));
+            assert_eq!(steps.is_included(60), Some(true));
+            assert_eq!(steps.is_included(70), Some(false));
+            assert_eq!(steps.is_included(75), Some(true));
+            assert_eq!(steps.is_included(80), Some(false));
+            assert_eq!(steps.is_included(89), Some(false));
+            assert_eq!(steps.is_included(90), Some(true));
+            assert_eq!(steps.is_included(91), None);
+            assert_eq!(steps.is_included(100), None);
+            assert_eq!(steps.is_included(101), None);
+            assert_eq!(steps.is_included(200), None);
+            let nselected = steps.natoms_selected(n);
+            assert_eq!(nselected, t);
+            let limit = steps.reading_limit(n);
+            assert_eq!(limit, 91);
         }
     }
 }

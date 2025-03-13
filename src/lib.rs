@@ -168,25 +168,21 @@ pub fn padding(n: usize) -> usize {
 #[doc(hidden)]
 pub fn read_positions<'s, 'r, B: buffer::Buffered<'s, 'r, R>, R: Read>(
     file: &'r mut R,
-    natoms: usize,
+    header_natoms: usize,
     scratch: &'s mut Vec<u8>,
     frame: &mut Frame,
     atom_selection: &AtomSelection,
     magic: Magic,
 ) -> io::Result<usize> {
     // If the atom_selection specifies fewer atoms, we will only allocate up to that point.
-    let natoms_selected = match atom_selection {
-        AtomSelection::All => natoms,
-        AtomSelection::Mask(mask) => mask.iter().take(natoms).filter(|&&include| include).count(),
-        AtomSelection::Until(end) => *end as usize,
-    };
+    let natoms_selected = atom_selection.natoms_selected(header_natoms);
 
-    frame
-        .positions
-        .resize(usize::min(natoms, natoms_selected) * 3, 0.0);
+    // Resize the positions array for the selected number of atoms.
+    frame.positions.resize(natoms_selected * 3, f32::NAN);
     frame.precision = read_f32(file)?;
     read_compressed_positions::<B, R>(
         file,
+        header_natoms,
         &mut frame.positions,
         frame.precision,
         scratch,
@@ -337,15 +333,14 @@ impl<R: Read> XTCReader<R> {
     ) -> io::Result<()> {
         // Start of by reading the header.
         let header = self.read_header()?;
-        let natoms = header.natoms;
 
         // Now, we read the atoms.
-        if natoms <= 9 {
-            self.read_smol_positions(natoms, frame, atom_selection)?;
+        if header.natoms <= 9 {
+            self.read_smol_positions(header.natoms, frame, atom_selection)?;
         } else {
             read_positions::<B, R>(
                 &mut self.file,
-                natoms,
+                header.natoms,
                 scratch,
                 frame,
                 atom_selection,
