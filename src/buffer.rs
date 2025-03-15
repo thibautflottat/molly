@@ -169,7 +169,8 @@ impl<'s, 'r, R: Read> Buffered<'s, 'r, R> for UnBuffered<'s> {
         let size = self.scratch.len();
         assert!(
             head < size,
-            "a pop may not be done with the head ({head}) outside the defined range of the scratch buffer (..{size})",
+            "cannot pop byte from the unbuffered scratch: the head ({head}) outside the defined \
+            range of the scratch buffer (..{size})",
         );
         self.head += 1;
         self.scratch[head]
