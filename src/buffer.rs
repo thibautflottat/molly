@@ -1,8 +1,8 @@
 use std::fs::File;
 use std::io::{self, Read, Seek, SeekFrom};
 
-use crate::{padding, Magic};
 use crate::reader::read_nbytes;
+use crate::{padding, Magic};
 
 pub trait Buffered<'s, 'r, R>: Sized {
     // TODO(buffered): Consider giving the n_bytes from the outside?
@@ -93,11 +93,7 @@ impl Buffer<'_, '_> {
 }
 
 impl<'s, 'r> Buffered<'s, 'r, File> for Buffer<'s, 'r> {
-    fn new(
-        scratch: &'s mut Vec<u8>,
-        reader: &'r mut File,
-        magic: Magic,
-    ) -> io::Result<Self> {
+    fn new(scratch: &'s mut Vec<u8>, reader: &'r mut File, magic: Magic) -> io::Result<Self> {
         let count = read_nbytes(reader, magic)?;
 
         // Fill the scratch buffer with a cautionary value.
