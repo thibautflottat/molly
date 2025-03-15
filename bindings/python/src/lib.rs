@@ -5,11 +5,8 @@ use std::num::NonZeroU64;
 use std::path::PathBuf;
 
 use molly::selection;
-use numpy::ndarray::{Array, Axis, Ix2};
-use numpy::{
-    IntoPyArray, Ix1, Ix3, PyArray, PyArrayMethods, PyReadwriteArray, PyReadwriteArrayDyn,
-    PyUntypedArrayMethods,
-};
+use numpy::ndarray::{Array, Axis};
+use numpy::{IntoPyArray, Ix2, PyArray, PyReadwriteArrayDyn, PyUntypedArrayMethods};
 use pyo3::exceptions::{PyTypeError, PyValueError};
 use pyo3::prelude::*;
 use pyo3::types::{PyIterator, PyList, PySlice};
@@ -90,6 +87,7 @@ impl FromPyObject<'_> for AtomSelection {
     }
 }
 
+/// A fast XTC trajectory reader.
 #[pyclass]
 struct XTCReader {
     inner: molly::XTCReader<std::fs::File>,
@@ -127,11 +125,19 @@ impl XTCReader {
         self.frame.clone() // FIXME: Is there a way around this?
     }
 
+    /// Returns the offsets of this `XTCReader` from its current position.
+    ///
+    /// The last value points to the start of the last frame.
+    ///
+    /// If this function is called when the internal reader is not at its starting position, the
+    /// frame offsets *from* its position are determined. If you wish to determine the offsets from
+    /// the initial reader position, call `XTCReader.home` before calling this function.
     #[pyo3(signature = (until=None))]
     fn determine_offsets(&mut self, until: Option<usize>) -> io::Result<Vec<u64>> {
         self.inner.determine_offsets(until).map(|l| l.to_vec())
     }
 
+    /// Returns the frame sizes in bytes of this `XTCReader`.
     #[pyo3(signature = (until=None))]
     fn determine_frame_sizes(&mut self, until: Option<usize>) -> io::Result<Vec<u64>> {
         self.inner.determine_frame_sizes(until).map(|l| l.to_vec())
@@ -188,11 +194,11 @@ impl XTCReader {
         Ok(frames.into_iter().map(|frame| frame.into()).collect())
     }
 
-    /// Read all frames into the provided `numpy.ndarray`.
+    /// Read all frames into the provided `np.ndarray`.
     ///
-    /// The `coordinate_array` must have a shape of `(nframes, natoms, 3)`.
+    /// The `coordinate_array` must have a shape of `(nframes, natoms, 3)` and have `dtype=np.float32`.
     ///
-    /// The `boxvec_array` must have a shape of `(nframes, 3, 3)`.
+    /// The `boxvec_array` must have a shape of `(nframes, 3, 3)` and have `dtype=np.float32`.
     ///
     /// Returns `True` if the reading operation was successful.
     ///
@@ -204,18 +210,19 @@ impl XTCReader {
     fn read_into_array<'py>(
         &mut self,
         py: Python<'py>,
-        mut coordinate_array: PyReadwriteArray<'py, f32, Ix3>,
-        mut boxvec_array: PyReadwriteArray<'py, f32, Ix3>,
-        mut time_array: Option<PyReadwriteArray<'py, f32, Ix1>>,
+        mut coordinate_array: PyReadwriteArrayDyn<'py, f32>,
+        mut boxvec_array: PyReadwriteArrayDyn<'py, f32>,
+        mut time_array: Option<PyReadwriteArrayDyn<'py, f32>>,
         frame_selection: Option<FrameSelection>,
         atom_selection: Option<AtomSelection>,
     ) -> PyResult<bool> {
         {
             // Verify that the shapes of the arrays are correct.
             let &[nf_coords, na, d] = coordinate_array.shape() else {
-                return Err(PyValueError::new_err(
-                    ("coordinate array should have 3 dimensions").to_string(),
-                ));
+                return Err(PyValueError::new_err(format!(
+                    "coordinate array should have 3 dimensions, found {}",
+                    coordinate_array.shape().len()
+                )));
             };
             if d != 3 {
                 return Err(PyValueError::new_err(format!(
@@ -228,7 +235,7 @@ impl XTCReader {
                     "boxvec array should have 3 dimensions".to_string(),
                 ));
             };
-            if d != 3 {
+            if a != 3 || b != 3 {
                 return Err(PyValueError::new_err(format!(
                     "incorrect shape: boxvec array must be of shape (nframes, 3, 3), found {:?}",
                     (nf_boxvecs, a, b)
