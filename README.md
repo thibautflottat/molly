@@ -1,5 +1,9 @@
 # _molly_&mdash;read `xtc` files, fast
 
+> **NOTE:**
+> This repository is hosted on [sourcehut][sourcehut] and recently on
+> [GitHub][github] as well.
+
 ![molly logo](molly.svg)
 
 A reader for the Gromacs [xtc file format][xtc] implemented in pure Rust.
@@ -159,6 +163,8 @@ disk I/O is factored out, buffered reading is around 20% slower than unbuffered
 reading. But over very large trajectories where only a subset of positions from
 the top of each frame is selected, the advantage is considerable.
 
+[sourcehut]: https://git.sr.ht/ma3ke/molly
+[github]: https://github.com/ma3ke/molly
 [contact]: https://dwangschematiek.nl/where
 [xtc]: https://manual.gromacs.org/current/reference-manual/file-formats.html#xtc
 [crates]: https://crates.io/crates/molly
