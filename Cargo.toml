@@ -11,6 +11,8 @@ categories = ["science", "parser-implementations"]
 description = "A fast reader for the xtc file format"
 rust-version = "1.74.1"
 
+[workspace]
+
 [lib]
 name = "molly"
 path = "src/lib.rs"
@@ -20,7 +22,7 @@ name = "molly"
 path = "src/main.rs"
 
 [dependencies]
-glam = "0.25.0"
+glam = "0.30.8"
 clap = { version = "4.5.4", features = ["derive"] }
 
 [dev-dependencies]
